@@ -44,10 +44,12 @@ typedef enum {
     MENU_MODE_ERROR,
     MENU_MODE_FAULT,
     MENU_MODE_BOOT,
-    MENU_MODE_FAVORITE,
     MENU_MODE_HISTORY,
     MENU_MODE_DATEL_CODE_EDITOR,
-    MENU_MODE_EXTRACT_FILE
+    MENU_MODE_EXTRACT_FILE,
+    MENU_MODE_GAMES_GRID,
+    MENU_MODE_LINK_DISC,
+    MENU_MODE_ROM_BOOT
 } menu_mode_t;
 
 /** @brief File entry type enumeration */
@@ -74,6 +76,7 @@ typedef struct {
     entry_type_t type;
     int64_t size;
     int32_t index;
+    char presents_region; /* 0=no override, 'U'=NTSC, 'E'=PAL, 'J'=NTSC-J */
 } entry_t;
 
 typedef struct {
@@ -98,6 +101,8 @@ typedef struct {
     boot_params_t *boot_params;
 
     char *error_message;
+    /** @brief Where the error view returns on dismiss (MENU_MODE_NONE = default Files). */
+    menu_mode_t error_return_mode;
     flashcart_err_t flashcart_err;
 
     time_t current_time;
@@ -115,6 +120,14 @@ typedef struct {
         bool settings;
         bool lz_context;
     } actions;
+
+    /* menu_init boot timing (ms): [0]flashcart [1]coreinit [2]display [3]fonts
+       [4]bg+splash [5]bookkeeping [6]total. Shown by the grid's on-screen boot readout. */
+    uint32_t boot_ms[7];
+
+    /* True only on the one-time reset boot: tells the grid to skip the /Favorites
+       auto-scan that boot, so the wiped list stays empty and the greeting shows. */
+    bool fresh_reset;
 
     struct {
         bool valid;
@@ -136,6 +149,8 @@ typedef struct {
         int32_t load_history_id;
         int32_t load_favorite_id;
         bool combined_disk_rom;
+        menu_mode_t load_return_mode; /**< When non-zero, leave_view() uses this instead of deriving a destination */
+        bool from_grid;              /**< Opened from the grid — draw grid background, not full-screen black */
     } load;
 
     struct {
@@ -143,6 +158,7 @@ typedef struct {
         bool disk_file;
         bool emulator_file;
         bool extract_file;
+        bool launch_rom;    /**< Boot the selected ROM immediately, skipping the detail view */
     } load_pending;
 } menu_t;
 

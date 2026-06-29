@@ -30,23 +30,11 @@ static void draw (menu_t *menu, surface_t *d) {
     ui_components_file_info_draw(menu->browser.entry->name, &info);
 
     if (info.pak_file_attributes.is_controller_pak_dump) {
-        ui_components_actions_bar_text_draw(STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "A: Restore to Controller Pak\n"
-            "B: Back"
-        );
+        ui_components_actions_bar_buttons_draw("A: Restore", "B: Back", NULL, NULL, NULL);
     } else if (info.pak_file_attributes.is_controller_pak_dump_note) {
-        ui_components_actions_bar_text_draw(STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "A: Restore note to Controller Pak\n"
-            "B: Back"
-        );
+        ui_components_actions_bar_buttons_draw("A: Restore", "B: Back", NULL, NULL, NULL);
     } else {
-        ui_components_actions_bar_text_draw(STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "\n"
-            "B: Exit"
-        );
+        ui_components_actions_bar_buttons_draw(NULL, "B: Back", NULL, NULL, NULL);
     }
 
     rdpq_detach_show();

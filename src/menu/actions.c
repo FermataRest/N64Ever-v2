@@ -3,10 +3,15 @@
 #include "actions.h"
 
 
-#define ACTIONS_REPEAT_DELAY    (8)
+/* Frames before the first auto-repeat after a press. Raised from 6 for the 60fps render: at
+   60fps a 6-frame delay (~117ms) let a normal-length press sneak in a second move; 10 (~167ms)
+   stops most accidental double-steps without feeling as slow as the old 30fps (~233ms). The
+   held-scroll acceleration below is unchanged (that pace feels right). */
+#define ACTIONS_REPEAT_INITIAL  10
 
 
-static int dir_repeat_delay;
+static int dir_repeat_delay = 0;
+static int dir_hold_count   = 0;   /* how many repeats have fired since direction started */
 static joypad_8way_t last_dir = JOYPAD_8WAY_NONE;
 
 
@@ -43,10 +48,24 @@ static void actions_update_direction (menu_t *menu) {
 
     joypad_8way_t final_dir = held_dir;
 
-    if ((last_dir != held_dir) && (last_dir == JOYPAD_8WAY_NONE)) {
-        dir_repeat_delay = ACTIONS_REPEAT_DELAY;
+    if (held_dir == JOYPAD_8WAY_NONE) {
+        /* Released — reset everything */
+        dir_repeat_delay = 0;
+        dir_hold_count   = 0;
+    } else if (last_dir == JOYPAD_8WAY_NONE) {
+        /* Fresh press — fire immediately, start initial repeat timer */
+        dir_repeat_delay = ACTIONS_REPEAT_INITIAL;
+        dir_hold_count   = 0;
     } else if (dir_repeat_delay > 0) {
+        /* Still waiting — suppress and tick down */
         final_dir = JOYPAD_8WAY_NONE;
+        dir_repeat_delay--;
+    } else {
+        /* Repeat fires this frame — schedule next with acceleration */
+        dir_hold_count++;
+        if      (dir_hold_count < 5)  dir_repeat_delay = 5;
+        else if (dir_hold_count < 12) dir_repeat_delay = 3;
+        else                          dir_repeat_delay = 1;
     }
 
     switch (final_dir) {
@@ -82,14 +101,10 @@ static void actions_update_direction (menu_t *menu) {
             break;
     }
 
-    if (dir_repeat_delay > 0) {
-        dir_repeat_delay -= 1;
-    }
-
     last_dir = held_dir;
 }
 
-static void actions_update_buttons (menu_t *menu) {    
+static void actions_update_buttons (menu_t *menu) {
     joypad_buttons_t pressed = {0};
 
     JOYPAD_PORT_FOREACH (i) {

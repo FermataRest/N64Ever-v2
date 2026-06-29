@@ -102,6 +102,14 @@ typedef enum {
     ROM_TV_TYPE_AUTOMATIC = -1,     /**< Automatic TV type detection */
 } rom_tv_type_t;
 
+/** @brief Presentation region override for grid orientation and boxart lookup. */
+typedef enum {
+    ROM_PRESENTS_AS_AUTO   = 0,     /**< No override — use the ROM's own destination code */
+    ROM_PRESENTS_AS_NTSC   = 1,     /**< Present as North American (NTSC) */
+    ROM_PRESENTS_AS_PAL    = 2,     /**< Present as European (PAL) */
+    ROM_PRESENTS_AS_NTSC_J = 3,     /**< Present as Japanese (NTSC-J) */
+} rom_presents_as_t;
+
 /** @brief ROM memory requirements enumeration. */
 typedef enum {
     EXPANSION_PAK_NONE,             /**< Happy with 4MB of memory */
@@ -162,6 +170,7 @@ typedef struct {
     struct {
         bool cheats_enabled;        /**< Cheats enabled */
         bool patches_enabled;       /**< Patches enabled */
+        rom_presents_as_t presents_as; /**< Region presentation override */
     } settings;                     /**< The ROM settings */
 
     struct {
@@ -192,6 +201,19 @@ bool rom_info_get_cic_seed(rom_info_t *rom_info, uint8_t *seed);
  * @return rom_err_t Error code
  */
 rom_err_t rom_config_load(path_t *path, rom_info_t *rom_info);
+
+/**
+ * @brief Load only the ROM header + database fields (fast, no metadata files).
+ *
+ * For the favorites grid, which needs game_code/region/title but not the text
+ * metadata or per-game config (those load on demand). meta.* are set to defaults
+ * so rom_info_free_meta() is safe.
+ *
+ * @param path Pointer to the path structure
+ * @param rom_info Pointer to the ROM information structure
+ * @return rom_err_t Error code
+ */
+rom_err_t rom_info_load_quick(path_t *path, rom_info_t *rom_info);
 
 /**
  * @brief Get the CIC type for the ROM.
@@ -254,6 +276,28 @@ void rom_info_free_meta(rom_info_t *rom_info);
  * @return rom_err_t Error code
  */
 rom_err_t rom_config_override_tv_type(path_t *path, rom_info_t *rom_info, rom_tv_type_t tv_type);
+
+/**
+ * @brief Override the presentation region for the ROM (grid orientation + boxart lookup).
+ *
+ * @param path Pointer to the path structure
+ * @param rom_info Pointer to the ROM information structure
+ * @param presents_as Presentation region to apply
+ * @return rom_err_t Error code
+ */
+rom_err_t rom_config_override_presents_as(path_t *path, rom_info_t *rom_info, rom_presents_as_t presents_as);
+
+/**
+ * @brief Get a per-game image-view override (context 0=grid, 1=inspect, 2=load).
+ * @return The override value (0..5), or -1 if none is set (use the global setting).
+ */
+int rom_config_get_image_view(path_t *path, int context);
+
+/**
+ * @brief Set a per-game image-view override (context 0=grid, 1=inspect, 2=load).
+ *        A value < 0 clears the override (reverts to the global setting).
+ */
+rom_err_t rom_config_override_image_view(path_t *path, int context, int value);
 
 /**
  * @brief Set the cheats setting for the ROM.

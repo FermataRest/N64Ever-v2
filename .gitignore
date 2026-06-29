@@ -13,8 +13,9 @@
 /filesystem/*.wav64
 /filesystem/*.sprite
 
-# Ignore external development tools
+# Ignore external development tools (but keep our SFX generator)
 /tools/*
+!/tools/gen_sfx.py
 
 # Ignore any N64 ROM
 **/*.n64
@@ -26,3 +27,7 @@
 
 # Ignore macOS filesystem cruft
 .DS_Store
+
+# --- N64ever: exclude build output + host tools (the box-art library IS tracked) ---
+/filesystem/
+/.hosttools/

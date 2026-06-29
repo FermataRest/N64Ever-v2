@@ -16,8 +16,12 @@
 #include "ini_parser.h"
 
 
-/** @brief Maximum number of key-value pairs (logical cap, not pre-allocated) */
-#define INI_MAX_PAIRS 64
+/** @brief Maximum number of key-value pairs per section (logical cap, not pre-allocated).
+ *  Bookkeeping stores up to 5 keys per favorite (paths, type, game_code, presents_as):
+ *  favorites.ini needs FAVORITES_COUNT(2048)*5 = 10240. 64 here once silently truncated
+ *  favorites to 21 entries (64/3) on save AND load. 16384 covers 2048 favorites + headroom.
+ *  (Storage is realloc-grown, so this cap costs nothing until pairs are actually added.) */
+#define INI_MAX_PAIRS 16384
 
 /** @brief Maximum number of sections (logical cap, not pre-allocated) */
 #define INI_MAX_SECTIONS 8
@@ -126,13 +130,25 @@ static ini_pair_t* find_pair(ini_section_t *section, const char *key) {
 /**
  * @brief Find or create a key-value pair in a section
  */
+/* When true, find_or_create_pair appends without the linear find_pair scan. Set
+   only around bulk load/save of files with known-unique keys (favorites/history):
+   the per-insert scan made building/parsing the ~947-entry favorites INI O(N^2),
+   i.e. a multi-second freeze on save (the History favorite hang) and a slow boot
+   on parse. Single-threaded menu, so a module flag is safe -- always restore to
+   false after the bulk op. */
+static bool s_assume_unique_keys = false;
+void ini_assume_unique_keys(bool on) { s_assume_unique_keys = on; }
+
 static ini_pair_t* find_or_create_pair(ini_section_t *section, const char *key) {
     if (!section || !key) return NULL;
-    
-    // Try to find existing pair
-    ini_pair_t *pair = find_pair(section, key);
-    if (pair) return pair;
-    
+
+    ini_pair_t *pair;
+    // Try to find an existing pair, unless bulk mode guarantees unique keys.
+    if (!s_assume_unique_keys) {
+        pair = find_pair(section, key);
+        if (pair) return pair;
+    }
+
     // Enforce logical cap on number of pairs per section
     if (section->pair_count >= INI_MAX_PAIRS) {
         debugf("[INI] pair limit reached in section\n");
@@ -423,6 +439,38 @@ ini_t* ini_load(const char *path) {
 ini_t* ini_try_load(const char *path) {
     ini_t *ini = ini_load(path);
     return ini ? ini : ini_create();
+}
+
+
+/**
+ * @brief Find an existing section by name (no creation).
+ */
+static ini_section_t* find_section(ini_t *ini, const char *name) {
+    if (!ini || !name) return NULL;
+    for (int i = 0; i < ini->section_count; i++) {
+        if (strcmp(ini->sections[i].name, name) == 0) {
+            return &ini->sections[i];
+        }
+    }
+    return NULL;
+}
+
+
+int ini_section_pair_count(ini_t *ini, const char *section) {
+    ini_section_t *s = find_section(ini, section);
+    return s ? s->pair_count : 0;
+}
+
+
+bool ini_section_get_pair(ini_t *ini, const char *section, int index,
+                          const char **key_out, const char **value_out) {
+    ini_section_t *s = find_section(ini, section);
+    if (!s || index < 0 || index >= s->pair_count) {
+        return false;
+    }
+    if (key_out)   *key_out   = s->pairs[index].key;
+    if (value_out) *value_out = s->pairs[index].value;
+    return true;
 }
 
 

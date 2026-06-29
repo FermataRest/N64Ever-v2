@@ -49,6 +49,40 @@ void view_browser_init(menu_t *menu);
 void view_browser_display(menu_t *menu, surface_t *display);
 
 /**
+ * @brief Navigate the browser directly into popup (shrink-wrapped) mode.
+ *        The browser renders as a small rainbow popup over the grid background.
+ *        Called from games_grid.c when "File Browser" is selected in the More menu.
+ *
+ * @param menu Pointer to the menu structure.
+ */
+void view_browser_open_popup(menu_t *menu);
+
+/** @brief Arm a disc->base-ROM link-pick from the grid: opens the browser in link-pick mode,
+ *         and the next ROM opened is stored as the disc's base (disclink) so the disc favorite
+ *         (disc_fav_id) boots combined. */
+void view_browser_request_link_pick(const char *disc_name, const char *disc_code, int disc_fav_id);
+
+/**
+ * @brief Open the file browser (popup) focused on a specific ROM with the
+ *        canonical File-management submenu already showing.
+ *
+ * @param menu     Pointer to the menu structure.
+ * @param rom_path Path of the ROM to operate on.
+ */
+void view_browser_open_file_management(menu_t *menu, path_t *rom_path);
+
+/**
+ * @brief Draw the games grid (background + tiles) without any overlay.
+ *        Called by other views (load_rom, browser popup) that want the grid
+ *        as their background instead of the full-screen dark gradient.
+ *        Assumes rdpq_attach has already been called by the caller.
+ *
+ * @param menu    Pointer to the menu structure.
+ * @param display Pointer to the display surface (unused but kept for symmetry).
+ */
+void view_games_grid_draw_background(menu_t *menu, surface_t *display);
+
+/**
  * @brief Initialize the file info view.
  *
  * @param menu Pointer to the menu structure.
@@ -295,21 +329,6 @@ void view_fault_init(menu_t *menu);
 void view_fault_display(menu_t *menu, surface_t *display);
 
 /**
- * @brief Initialize the favorite view.
- *
- * @param menu Pointer to the menu structure.
- */
-void view_favorite_init(menu_t *menu);
-
-/**
- * @brief Display the favorite view.
- *
- * @param menu Pointer to the menu structure.
- * @param display Pointer to the display surface.
- */
-void view_favorite_display(menu_t *menu, surface_t *display);
-
-/**
  * @brief Initialize the history view.
  *
  * @param menu Pointer to the menu structure.
@@ -353,6 +372,75 @@ void view_extract_file_init(menu_t *menu);
  * @param display Pointer to the display surface.
  */
 void view_extract_file_display(menu_t *menu, surface_t *display);
+
+/**
+ * @brief Initialize the games grid view.
+ *
+ * @param menu Pointer to the menu structure.
+ */
+void view_games_grid_init(menu_t *menu);
+
+/**
+ * @brief Display the games grid view.
+ *
+ * @param menu Pointer to the menu structure.
+ * @param display Pointer to the display surface.
+ */
+void view_games_grid_display(menu_t *menu, surface_t *display);
+
+/**
+ * @brief Drive the games-grid screensaver marquee as an animated background for another view.
+ *        begin (lay out + reclaim RAM), frame (step + draw to the attached surface), end
+ *        (restore). The caller MUST call end on exit. Used by the credits popup.
+ */
+void view_grid_screensaver_begin(menu_t *menu);
+void view_grid_screensaver_frame(menu_t *menu);
+void view_grid_screensaver_end(menu_t *menu);
+
+/** @brief Free all grid cover art (reclaim a large contiguous block, e.g. before a font reload). */
+void view_grid_release_boxart(void);
+
+/**
+ * @brief Initialize the link-disc picker (pick a 64DD disc to pair with a ROM).
+ *
+ * @param menu Pointer to the menu structure.
+ */
+void view_link_disc_init(menu_t *menu);
+
+/**
+ * @brief Put the link picker into CART mode for an unlinked expansion disk, then switch to
+ *        MENU_MODE_LINK_DISC. Lists favourite cartridges of the same game family to pair.
+ *
+ * @param menu Pointer to the menu structure.
+ * @param fav_i Favourite index of the expansion disk needing a cartridge.
+ */
+void view_link_disc_pick_cart(menu_t *menu, int fav_i);
+
+/**
+ * @brief Display the link-disc picker view.
+ *
+ * @param menu Pointer to the menu structure.
+ * @param display Pointer to the display surface.
+ */
+void view_link_disc_display(menu_t *menu, surface_t *display);
+
+/**
+ * @brief Initialize the ROM-boot countdown view (userland power-on preview of the chosen ROM).
+ *        Expects menu->load.rom_path already set (by startup) to the boot ROM.
+ *
+ * @param menu Pointer to the menu structure.
+ */
+void view_rom_boot_init(menu_t *menu);
+
+/**
+ * @brief Display the ROM-boot countdown view: shows the ROM's Load art (or the cart placeholder)
+ *        with a countdown. B cancels to the grid; START boots now; on timeout it launches exactly
+ *        as the file browser would (hands off to MENU_MODE_LOAD_ROM).
+ *
+ * @param menu Pointer to the menu structure.
+ * @param display Pointer to the display surface.
+ */
+void view_rom_boot_display(menu_t *menu, surface_t *display);
 
 /**
  * @brief Show an error message in the menu.

@@ -1,14 +1,17 @@
 #include "../cart_load.h"
+#include "../disclink.h"
 #include "../disk_info.h"
 #include "boot/boot.h"
 #include "../sound.h"
 #include "views.h"
 #include "../bookkeeping.h"
+#include "../ui_components/constants.h"
 #include <string.h>
 
 #define DISK_SLOTS_MAX 3 // Maximum number of disk slots supported (excluding the primary disk)
 
 static component_boxart_t *boxart;
+static menu_t *ld_menu = NULL;   /* for draw_progress: from_grid (compact popup) + grid background */
 static char *disk_filename;
 static uint16_t swap_disk_count = 0;
 
@@ -183,7 +186,10 @@ static void draw (menu_t *menu, surface_t *d) {
             "\tUnique ID:\t%.4s\n"
             "\tVersion:\t\t%hhu\n"
             "\tDisk type:\t%d\n"
-            "\tSwap disks:\t%d found\n",
+            "\tSwap disks:\t%d found\n"
+            "\n"
+            "Tip: after a 64DD game, press Reset\n"
+            "twice to return to this menu (SC64 quirk).\n",
 
             format_disk_region(menu->load.disk_slots.primary.disk_info.region),
             menu->load.disk_slots.primary.disk_info.id,
@@ -209,31 +215,20 @@ static void draw (menu_t *menu, surface_t *d) {
         }
         
 
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "A: Load and run 64DD disk\n"
-            "B: Exit\n"
-        );
+        ui_components_actions_bar_buttons_draw(
+            "A: Load",
+            "B: Back",
+            NULL,
+            menu->load.rom_path ? "L/Z: +ROM" : NULL,
+            "R: Options");
 
-        if (menu->load.rom_path) {
-            ui_components_actions_bar_text_draw(
-                STL_DEFAULT,
-                ALIGN_RIGHT, VALIGN_TOP,
-                "L|Z: Load with ROM\n"
-                "  R:       Options\n"
-            );
-        } else {
-            ui_components_actions_bar_text_draw(
-                STL_DEFAULT,
-                ALIGN_RIGHT, VALIGN_TOP,
-                "\n"
-                "R:   Options\n"
-            );
-        }
-
-        if (boxart != NULL) {
+        if (boxart && boxart->image && !boxart->loading) {
             ui_components_boxart_draw(boxart);
+        } else {
+            /* No art resolved for the disc: show the cart placeholder so the load screen is never
+               blank (matches the ROM loader). TODO: swap for a 64DD-disc-specific placeholder. */
+            ui_components_cart_placeholder_draw(BOXART_X, BOXART_Y,
+                BOXART_X + BOXART_WIDTH, BOXART_Y + BOXART_HEIGHT);
         }
 
         ui_components_context_menu_draw(&options_context_menu);
@@ -245,15 +240,74 @@ static void draw (menu_t *menu, surface_t *d) {
 static void draw_progress (float progress) {
     surface_t *d = (progress >= 1.0f) ? display_get() : display_try_get();
 
-    if (d) {
-        rdpq_attach(d, NULL);
+    if (!d) return;
+    rdpq_attach(d, NULL);
 
-        ui_components_background_draw();
+    /* Match the ROM loader (load_rom.c draw_load_content): centred cover with the progress bar
+       directly below, in a compact rainbow popup over the grid background when launched from the
+       grid -- so a disc load looks identical to a ROM load. (load_disk boots straight through, so
+       draw() never runs; this is the only place the cover is seen.) */
+    bool compact = ld_menu && ld_menu->load.from_grid;
+    if (compact) view_games_grid_draw_background(ld_menu, d);
+    else         ui_components_background_draw();
 
-        ui_components_loader_draw(progress, "Loading 64DD disk...");
+    int img_w = compact ? 120 : 160;
+    int img_h = compact ? 90  : 120;
+    int bar_w = img_w;
+    int bar_h = compact ? 14 : 18;
+    int gap   = 24;
+    int block_h = img_h + gap + bar_h;
+    int img_x0 = DISPLAY_CENTER_X - img_w / 2;
+    int img_y0 = DISPLAY_CENTER_Y - block_h / 2;
+    int img_x1 = img_x0 + img_w;
+    int img_y1 = img_y0 + img_h;
+    int bar_x0 = DISPLAY_CENTER_X - bar_w / 2;
+    int bar_y0 = img_y1 + gap;
+    int bar_x1 = bar_x0 + bar_w;
+    int bar_y1 = bar_y0 + bar_h;
 
-        rdpq_detach_show();
+    if (compact) {
+        ui_components_dialog_draw(bar_w + MESSAGEBOX_MARGIN, block_h + MESSAGEBOX_MARGIN);
     }
+
+    surface_t *img = (boxart && !boxart->loading) ? boxart->image : NULL;
+    bool img_ok = img && img->width > 0 && img->height > 0 && img->width <= 1024 && img->height <= 1024;
+    if (img_ok) {
+        float sx = (float)img_w / img->width, sy = (float)img_h / img->height;
+        float scale = sx < sy ? sx : sy;
+        int dw = (int)(img->width * scale), dh = (int)(img->height * scale);
+        rdpq_mode_push();
+        rdpq_set_mode_standard();
+        rdpq_mode_filter(FILTER_BILINEAR);
+        /* Alpha-BLEND (not alpha-compare): a logo/art with anti-aliased (partial-alpha) edges was
+           rendered fully opaque under alphacompare(1), giving a coloured halo (seen booting the
+           English F-Zero X DD expansion). Blending composites soft edges smoothly; fully
+           transparent texels still contribute nothing. Matches the placeholder draw. */
+        rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+        rdpq_tex_blit(img, img_x0 + (img_w - dw) / 2, img_y0 + (img_h - dh) / 2,
+                      &(rdpq_blitparms_t){ .scale_x = scale, .scale_y = scale });
+        rdpq_mode_pop();
+    } else {
+        ui_components_disc_placeholder_draw(img_x0, img_y0, img_x1, img_y1);
+    }
+
+    rdpq_mode_push();
+    rdpq_set_mode_fill(RGBA32(0x08, 0x08, 0x08, 0xFF));
+    rdpq_fill_rectangle(bar_x0, bar_y0, bar_x1, bar_y1);
+    rdpq_mode_pop();
+    int W = bar_w, filled_px = (int)(progress * W);
+    int N = W / 4; if (N > 96) N = 96; if (N < 1) N = 1;
+    for (int i = 0; i < N; i++) {
+        int sx0 = bar_x0 + W * i / N, sx1 = bar_x0 + W * (i + 1) / N, sc = (sx0 + sx1) / 2 - bar_x0;
+        uint8_t hue = (uint8_t)(255 * i / N), bri = (sc < filled_px) ? 220 : 28;
+        rdpq_mode_push();
+        rdpq_set_mode_fill(ui_components_rainbow_color(hue, bri));
+        rdpq_fill_rectangle(sx0, bar_y0, sx1, bar_y1);
+        rdpq_mode_pop();
+    }
+    ui_components_border_draw(bar_x0 - 1, bar_y0 - 1, bar_x1 + 1, bar_y1 + 1);
+
+    rdpq_detach_show();
 }
 
 static void load (menu_t *menu) {
@@ -322,12 +376,14 @@ static bool load_rom(menu_t* menu, path_t* rom_path) {
 }
 
 void view_load_disk_init (menu_t *menu) {
+    ld_menu = menu;   /* draw_progress needs from_grid (compact popup) + the grid background */
     if (menu->load.disk_slots.primary.disk_path) {
         path_free(menu->load.disk_slots.primary.disk_path);
         menu->load.disk_slots.primary.disk_path = NULL;
     }
 
     menu->load_pending.disk_file = false;
+    menu->load.combined_disk_rom = false;   /* set true below only for a disk+cart favorite */
 
     if(menu->load.load_history_id != -1 || menu->load.load_favorite_id != -1) {
         bookkeeping_item_t* items;
@@ -362,12 +418,47 @@ void view_load_disk_init (menu_t *menu) {
         }
 
         menu->load.disk_slots.primary.disk_path = path_clone(items[item_id].primary_path);
-        if(!load_rom(menu, items[item_id].secondary_path)) {
-            return;  // load_rom handles its own error messages
+        char dl_base[256];
+        if (disclink_lookup(menu->storage_prefix, items[item_id].game_code, dl_base, sizeof dl_base)) {
+            /* Manual disclink override (per-region /menu/n64ever/disclink_{jp,us}.ini) wins over
+               the favorite's secondary_path -- this is how the English (EFZE->US) and Japanese
+               (EFZJ->JP) F-Zero X discs each resolve their correct base without clobbering. */
+            path_t *bp = path_create(dl_base);
+            bool ok = load_rom(menu, bp);
+            path_free(bp);
+            if (!ok) return;       // load_rom handles its own error messages
+            menu->load.combined_disk_rom = true;
+        } else if (path_has_value(items[item_id].secondary_path)) {
+            /* Combined disk+cart favorite (e.g. F-Zero X Expansion Kit linked to the F-Zero X
+               cartridge): load the cart into the slot too -- WITHOUT combined_disk_rom set,
+               load() skips the ROM and the expansion disc shows "insert the cartridge". */
+            if(!load_rom(menu, items[item_id].secondary_path)) {
+                return;  // load_rom handles its own error messages
+            }
+            menu->load.combined_disk_rom = true;
+        } else if (menu->load.rom_path) {
+            /* Standalone disk favorite: clear any stale ROM from a prior combined launch. */
+            rom_info_free_meta(&menu->load.rom_info);
+            path_free(menu->load.rom_path);
+            menu->load.rom_path = NULL;
         }
     } else {
         // Existing browser path logic
         menu->load.disk_slots.primary.disk_path = path_clone_push(menu->browser.directory, menu->browser.entry->name);
+
+        /* If this disc is already linked to a base cartridge (a combined disk favorite, created
+           via the grid's cart-picker), boot them combined here too -- so an expansion disc like
+           the F-Zero X Expansion Kit runs from the FILE BROWSER, not only from the grid. The
+           link lives in favorites (primary = disc, secondary = cart). */
+        path_t *dp = menu->load.disk_slots.primary.disk_path;
+        for (int k = 0; k < FAVORITES_COUNT; k++) {
+            bookkeeping_item_t *f = &menu->bookkeeping.favorite_items[k];
+            if (f->bookkeeping_type == BOOKKEEPING_TYPE_DISK && f->primary_path &&
+                path_are_match(dp, f->primary_path) && path_has_value(f->secondary_path)) {
+                if (load_rom(menu, f->secondary_path)) menu->load.combined_disk_rom = true;
+                break;
+            }
+        }
     }
 
     disk_filename = path_last_get(menu->load.disk_slots.primary.disk_path);
@@ -381,18 +472,56 @@ void view_load_disk_init (menu_t *menu) {
     scan_for_swap_disks(menu);
 
     ui_components_context_menu_init(&options_context_menu);
-    boxart = ui_components_boxart_init(menu->storage_prefix, menu->load.disk_slots.primary.disk_info.id, NULL, IMAGE_BOXART_FRONT);
+    /* Art code: the 64DD expansion's OWN art is baked under the DISC code (e.g. EFZE/EFZJ), so
+       prefer the disc's 4-char code from a "NUD-CCCC-..." filename (real .ndd carry it verbatim).
+       Then the disk system-area id if it's a real code, then the base ROM code for a combined boot.
+       (The cart placeholder below covers the rest, so the load screen is never blank.) */
+    char disc_code[5] = "";
+    const char *dfn = path_last_get(menu->load.disk_slots.primary.disk_path);
+    const char *nud = dfn ? strstr(dfn, "NUD-") : NULL;
+    if (nud && strlen(nud) >= 8) { memcpy(disc_code, nud + 4, 4); disc_code[4] = '\0'; }
+    const char *did = menu->load.disk_slots.primary.disk_info.id;
+    const char *art_code = disc_code[0]                 ? disc_code
+                         : (did && did[0])              ? did
+                         : menu->load.combined_disk_rom ? menu->load.rom_info.game_code
+                         : NULL;
+    /* Use the LOAD image view (context 2) + per-game override -- same as load_rom -- so the disc's
+       load art honours the Game Look setting instead of always showing the front. */
+    int lv_ovr = rom_config_get_image_view(menu->load.disk_slots.primary.disk_path, 2);
+    int lv = (lv_ovr >= 0 && lv_ovr < GRID_IMAGE_COUNT) ? lv_ovr : menu->settings.image_view_load;
+    boxart = ui_components_boxart_init(menu->storage_prefix, art_code, NULL, NULL,
+                                       ui_components_boxart_view_to_type(lv), menu->settings.use_custom_files);
+
+    /* Boot the disc straight away -- the interactive "64DD disk information" screen (A=standalone,
+       L|Z=with ROM, R=add favorite) was confusing for a linked favorite, and the link (favorite
+       secondary / browser link lookup) already decided combined-vs-standalone. Retire the screen
+       for now by arming the load here. (The view's process/draw stay in the code for the future.) */
+    menu->load_pending.disk_file = true;
 }
 
 void view_load_disk_display (menu_t *menu, surface_t *display) {
-    process(menu);
-
-    draw(menu, display);
-
+    /* Armed by view_load_disk_init: boot straight through (the loader draws its own progress),
+       skipping the retired interactive info screen. */
     if (menu->load_pending.disk_file) {
         menu->load_pending.disk_file = false;
+        /* Release THIS frame's framebuffer before load(): the progress callback calls a
+           BLOCKING display_get() at 100%, which deadlocks ("wait loop timed out" RSP/display
+           crash) if the menu-loop's buffer is still held. Showing one clean background frame
+           cycles it -- and avoids flashing the retired interactive info screen. */
+        if (display) {
+            rdpq_attach(display, NULL);
+            ui_components_background_draw();
+            rdpq_detach_show();
+        }
         load(menu);
+        if (menu->next_mode != MENU_MODE_LOAD_DISK) {
+            deinit();
+        }
+        return;
     }
+
+    process(menu);
+    draw(menu, display);
 
     if (menu->next_mode != MENU_MODE_LOAD_DISK) {
         deinit();

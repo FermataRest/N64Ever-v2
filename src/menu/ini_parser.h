@@ -55,6 +55,18 @@ ini_t* ini_create(void);
 
 
 /**
+ * @brief Bulk-mode toggle: when enabled, inserts append without the dedup scan.
+ *
+ * find_or_create_pair normally does a linear scan to find/replace an existing
+ * key, which makes building or parsing a file with many keys O(N^2). Set this
+ * around large load/save of files whose keys are unique by construction
+ * (favorites, history) to make those operations O(N). MUST be restored to false
+ * afterwards, or normal find-or-replace setters will create duplicate keys.
+ */
+void ini_assume_unique_keys(bool on);
+
+
+/**
  * @brief Parse INI content from a memory buffer
  * 
  * Parses INI-formatted text from a buffer without filesystem I/O.
@@ -122,11 +134,39 @@ bool ini_get_bool(ini_t *ini, const char *section, const char *key, bool default
 
 
 /**
+ * @brief Number of key-value pairs stored in a section.
+ *
+ * Lets a caller iterate a section's pairs in O(pairs) instead of probing each
+ * expected key with ini_get_* -- every ini_get_* is a linear find_pair scan, so
+ * reading N keys back is O(N^2) (this was the ~45 s favorites-load boot cost).
+ *
+ * @param ini INI structure
+ * @param section Section name
+ * @return Pair count, or 0 if the section is absent
+ */
+int ini_section_pair_count(ini_t *ini, const char *section);
+
+
+/**
+ * @brief Fetch the key/value at a given pair index within a section.
+ *
+ * @param ini INI structure
+ * @param section Section name
+ * @param index Pair index in [0, ini_section_pair_count)
+ * @param key_out Receives the key pointer (not owned; do not free); may be NULL
+ * @param value_out Receives the value pointer (NULL for a deleted key); may be NULL
+ * @return true if the pair exists, false otherwise
+ */
+bool ini_section_get_pair(ini_t *ini, const char *section, int index,
+                          const char **key_out, const char **value_out);
+
+
+/**
  * @brief Set string value in INI
- * 
+ *
  * Sets a string value in the specified section and key.
  * Creates section if it doesn't exist.
- * 
+ *
  * @param ini INI structure
  * @param section Section name
  * @param key Key name

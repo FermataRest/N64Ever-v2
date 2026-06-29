@@ -5,7 +5,10 @@
 static void process (menu_t *menu) {
     if (menu->actions.back) {
         sound_play_effect(SFX_EXIT);
-        menu->next_mode = MENU_MODE_BROWSER;
+        /* Return to wherever the error was raised from (grid/history), defaulting
+           to the file browser when the caller didn't specify. */
+        menu->next_mode = (menu->error_return_mode != MENU_MODE_NONE)
+                        ? menu->error_return_mode : MENU_MODE_BROWSER;
     }
 }
 
@@ -25,6 +28,7 @@ static void draw (menu_t *menu, surface_t *d) {
 
 static void deinit (menu_t *menu) {
     menu->error_message = NULL;
+    menu->error_return_mode = MENU_MODE_NONE;
     menu->flashcart_err = FLASHCART_OK;
 }
 

@@ -20,11 +20,15 @@
  * for menu interactions.
  */
 typedef enum {
-    SFX_CURSOR,  /**< Sound effect for cursor movement */
-    SFX_ERROR,   /**< Sound effect for error */
-    SFX_ENTER,   /**< Sound effect for entering a menu */
-    SFX_EXIT,    /**< Sound effect for exiting a menu */
-    SFX_SETTING, /**< Sound effect for changing a setting */
+    SFX_CURSOR,      /**< Sound effect for cursor movement */
+    SFX_ERROR,       /**< Sound effect for error */
+    SFX_ENTER,       /**< Sound effect for entering a menu */
+    SFX_EXIT,        /**< Sound effect for exiting a menu */
+    SFX_SETTING,     /**< Sound effect for changing a setting */
+    SFX_GRID_MOVE,   /**< Navigate the games grid */
+    SFX_GRID_ENTER,  /**< Open the grid inspect popup */
+    SFX_GRID_BACK,   /**< Close the grid inspect popup */
+    SFX_LAUNCH,      /**< Launch a game */
 } sound_effect_t;
 
 /**
@@ -66,8 +70,24 @@ void sound_use_sfx(bool enable);
 void sound_play_effect(sound_effect_t sfx);
 
 /**
+ * @brief Load grid SFX from ROM; SD card files at sd:/menu/sounds/ override.
+ *
+ * Always succeeds (ROM copies always present). Call once after sound_init_sfx.
+ *
+ * @param storage_prefix Storage prefix, e.g. "sd:".
+ */
+void sound_init_grid_sfx(const char *storage_prefix);
+
+/**
+ * @brief Enable or disable grid SFX playback (should follow the BGM setting).
+ *
+ * @param enabled True to allow grid SFX to play, false to silence them.
+ */
+void sound_set_grid_sfx_enabled(bool enabled);
+
+/**
  * @brief Deinitialize the sound system.
- * 
+ *
  * This function deinitializes the sound system, releasing any resources
  * that were allocated.
  */

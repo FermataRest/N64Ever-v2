@@ -1097,12 +1097,50 @@ void rom_info_free_meta(rom_info_t *rom_info) {
     }
 }
 
+/* Build path: <prefix>/menu/n64ever/gameconfigs/<stem>.ini from a ROM path.
+   If legacy is true, builds the legacy <prefix>/menu/custom/gameconfigs/<stem>.ini. */
+static path_t *custom_ini_path_ex(path_t *rom_path, bool legacy) {
+    const char *full = path_get(rom_path);
+    const char *colon = strchr(full, ':');
+    char prefix[16] = "sd:";
+    if (colon) {
+        size_t len = (size_t)(colon - full + 1);
+        if (len < sizeof(prefix)) { memcpy(prefix, full, len); prefix[len] = '\0'; }
+    }
+    const char *fname = path_last_get(rom_path);
+    char stem[256];
+    strncpy(stem, fname, sizeof(stem) - 1); stem[sizeof(stem) - 1] = '\0';
+    char *dot = strrchr(stem, '.'); if (dot) *dot = '\0';
+    path_t *p = path_init(prefix, legacy ? "/menu/custom/gameconfigs" : "/menu/n64ever/gameconfigs");
+    path_push(p, stem);
+    path_ext_replace(p, "ini");
+    return p;
+}
+
+static path_t *custom_ini_path(path_t *rom_path) {
+    return custom_ini_path_ex(rom_path, false);
+}
+
 static void load_rom_config_from_file (path_t *path, rom_info_t *rom_info) {
-    path_t *rom_info_path = path_clone(path);
-
-    path_ext_replace(rom_info_path, "ini");
-
+    /* Primary location: <prefix>/menu/n64ever/gameconfigs/<stem>.ini */
+    path_t *rom_info_path = custom_ini_path(path);
     ini_t *rom_config_ini = ini_load(path_get(rom_info_path));
+    path_free(rom_info_path);
+
+    /* Backward compat: legacy <prefix>/menu/custom/gameconfigs/<stem>.ini */
+    if (!rom_config_ini) {
+        path_t *legacy_path = custom_ini_path_ex(path, true);
+        rom_config_ini = ini_load(path_get(legacy_path));
+        path_free(legacy_path);
+    }
+
+    /* Backward compat: legacy location next to the ROM */
+    if (!rom_config_ini) {
+        path_t *old_path = path_clone(path);
+        path_ext_replace(old_path, "ini");
+        rom_config_ini = ini_load(path_get(old_path));
+        path_free(old_path);
+    }
 
     rom_info->boot_override.cic = false;
     rom_info->boot_override.save = false;
@@ -1112,6 +1150,7 @@ static void load_rom_config_from_file (path_t *path, rom_info_t *rom_info) {
         // general
         rom_info->settings.cheats_enabled = ini_get_bool(rom_config_ini, "", "cheats_enabled", false);
         rom_info->settings.patches_enabled = ini_get_bool(rom_config_ini, "", "patches_enabled", false);
+        rom_info->settings.presents_as = (rom_presents_as_t)ini_get_int(rom_config_ini, "", "presents_as", ROM_PRESENTS_AS_AUTO);
         
         // overrides
         rom_info->boot_override.cic_type = ini_get_int(rom_config_ini, "custom_boot", "cic_type", ROM_CIC_TYPE_AUTOMATIC);
@@ -1131,14 +1170,20 @@ static void load_rom_config_from_file (path_t *path, rom_info_t *rom_info) {
 
         ini_free(rom_config_ini);
     }
-
-    path_free(rom_info_path);
 }
 
 static rom_err_t save_rom_config_setting_to_file (path_t *path, const char *type, const char *id, int value, int default_value) {
-    path_t *rom_info_path = path_clone(path);
+    path_t *rom_info_path = custom_ini_path(path);
 
-    path_ext_replace(rom_info_path, "ini");
+    /* Ensure /menu/n64ever/ and /menu/n64ever/gameconfigs/ exist (non-recursive create). */
+    path_t *dir_path = path_clone(rom_info_path);
+    path_pop(dir_path);                       /* .../menu/n64ever/gameconfigs */
+    path_t *parent_path = path_clone(dir_path);
+    path_pop(parent_path);                    /* .../menu/n64ever */
+    directory_create(path_get(parent_path));
+    directory_create(path_get(dir_path));
+    path_free(parent_path);
+    path_free(dir_path);
 
     ini_t *rom_config_ini = ini_try_load(path_get(rom_info_path));
     if (!rom_config_ini) {
@@ -1247,6 +1292,39 @@ rom_err_t rom_config_override_tv_type (path_t *path, rom_info_t *rom_info, rom_t
     return save_rom_config_setting_to_file(path, "custom_boot", "tv_type", rom_info->boot_override.tv_type, ROM_TV_TYPE_AUTOMATIC);
 }
 
+rom_err_t rom_config_override_presents_as (path_t *path, rom_info_t *rom_info, rom_presents_as_t presents_as) {
+    rom_info->settings.presents_as = presents_as;
+    return save_rom_config_setting_to_file(path, "", "presents_as", (int)presents_as, (int)ROM_PRESENTS_AS_AUTO);
+}
+
+/* Per-game image-view override (context 0=grid, 1=inspect, 2=load).
+   Stored under [presentation] in the game's gameconfigs .ini; value <0 means
+   "use the global setting" (key absent). */
+static const char *image_view_key (int context) {
+    switch (context) {
+        case 1:  return "image_view_inspect";
+        case 2:  return "image_view_load";
+        default: return "image_view_grid";
+    }
+}
+
+int rom_config_get_image_view (path_t *path, int context) {
+    path_t *p = custom_ini_path(path);
+    ini_t *ini = ini_load(path_get(p));
+    path_free(p);
+    /* No legacy /menu/custom fallback here: this is the hot per-tile read (grid/inspect/load),
+       and the one-time boot migration moves all gameconfigs to /menu/n64ever. Dropping it saves
+       a wasted SD probe on every no-override tile. */
+    if (!ini) return -1;
+    int v = ini_get_int(ini, "presentation", image_view_key(context), -1);
+    ini_free(ini);
+    return v;
+}
+
+rom_err_t rom_config_override_image_view (path_t *path, int context, int value) {
+    return save_rom_config_setting_to_file(path, "presentation", image_view_key(context), value, -1);
+}
+
 rom_err_t rom_config_setting_set_cheats (path_t *path, rom_info_t *rom_info, bool enabled) {
     rom_info->settings.cheats_enabled = enabled;
     return save_rom_config_setting_to_file(path, "", "cheats_enabled", enabled, false);
@@ -1302,6 +1380,41 @@ rom_err_t rom_config_load (path_t *path, rom_info_t *rom_info) {
     }
     
     debugf("[META] rom_config_load: complete\\n");
+
+    return ROM_OK;
+}
+
+rom_err_t rom_info_load_quick (path_t *path, rom_info_t *rom_info) {
+    /* Lightweight load for the favorites grid: ROM header + built-in database only.
+       Skips the per-game .ini, the external .meta and the embedded-zip metadata
+       scan — each is one or more SD file-opens, and doing them for every favorite
+       made boot/scroll crawl on a large grid. The header (via the game_code union)
+       gives game_code, region (destination_code), title, save type and expansion;
+       text metadata and per-game presents-as are loaded on demand (inspect/launch).
+       meta.* are set to defaults so rom_info_free_meta() stays safe. */
+    FILE *f;
+    rom_header_t rom_header;
+
+    if ((f = fopen(path_get(path), "rb")) == NULL) {
+        return ROM_ERR_NO_FILE;
+    }
+    setbuf(f, NULL);
+    if (fread(&rom_header, sizeof(rom_header), 1, f) != 1) {
+        fclose(f);
+        return ROM_ERR_LOAD_IO;
+    }
+    if (fclose(f)) {
+        return ROM_ERR_LOAD_IO;
+    }
+
+    fix_rom_header_endianness(&rom_header, rom_info);
+    match_t match = find_rom_in_database(&rom_header);
+    extract_rom_info(&match, &rom_header, rom_info);
+
+    rom_info->boot_override.cic = false;
+    rom_info->boot_override.save = false;
+    rom_info->boot_override.tv = false;
+    rom_info->settings.presents_as = ROM_PRESENTS_AS_AUTO;
 
     return ROM_OK;
 }

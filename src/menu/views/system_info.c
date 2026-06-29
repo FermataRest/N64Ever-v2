@@ -27,52 +27,36 @@ static void process (menu_t *menu) {
         accessory[port] = joypad_get_accessory_type(port);
     }
 
-    if (menu->actions.back) {
+    /* Both A and B exit this info popup. */
+    if (menu->actions.back || menu->actions.enter) {
         sound_play_effect(SFX_EXIT);
-        menu->next_mode = MENU_MODE_BROWSER;
+        menu->next_mode = menu->load.load_return_mode ? menu->load.load_return_mode : MENU_MODE_BROWSER;
+        menu->load.load_return_mode = 0;
     }
 }
 
 static void draw (menu_t *menu, surface_t *d) {
     rdpq_attach(d, NULL);
 
-    ui_components_background_draw();
+    /* Grid backdrop is standard for these popups (regardless of entry point). */
+    view_games_grid_draw_background(menu, d);
 
-    ui_components_layout_draw();
-
-    ui_components_main_text_draw(
-        STL_DEFAULT,
-        ALIGN_CENTER, VALIGN_TOP,
-        "N64 SYSTEM INFORMATION"
-    );
-
-    ui_components_main_text_draw(
-        STL_DEFAULT,
-        ALIGN_LEFT, VALIGN_TOP,
+    /* Compact popup instead of a full-screen panel. */
+    ui_components_messagebox_draw(
+        "N64 System Information\n"
         "\n"
-        "\n"
-        "Expansion PAK is %sinserted\n"
-        "\n"
-        "Joypad 1 is %sconnected %s\n"
-        "Joypad 2 is %sconnected %s\n"
-        "Joypad 3 is %sconnected %s\n"
-        "Joypad 4 is %sconnected %s\n"
-        "\n"
-        "\n"
-        "Physical Disk Drive attached: %s\n",
+        "Expansion PAK %sinserted\n"
+        "Joypad 1 %sconnected %s\n"
+        "Joypad 2 %sconnected %s\n"
+        "Joypad 3 %sconnected %s\n"
+        "Joypad 4 %sconnected %s\n"
+        "Disk Drive: %s",
         is_memory_expanded() ? "" : "not ",
         (joypad[0]) ? "" : "not ", format_accessory(0),
         (joypad[1]) ? "" : "not ", format_accessory(1),
         (joypad[2]) ? "" : "not ", format_accessory(2),
         (joypad[3]) ? "" : "not ", format_accessory(3),
         "Unknown" // Fixme: Implement disk drive detection
-    );
-
-    ui_components_actions_bar_text_draw(
-        STL_DEFAULT,
-        ALIGN_LEFT, VALIGN_TOP,
-        "\n"
-        "B: Exit"
     );
 
     rdpq_detach_show();

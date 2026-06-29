@@ -1,8 +1,28 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include "../sound.h"
 
 #include "../png_decoder.h"
+#include "../path.h"
+#include "utils/fs.h"
 #include "views.h"
+
+/* Copy a file byte-for-byte. Returns true on success. */
+static bool copy_file (const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in) return false;
+    FILE *out = fopen(dst, "wb");
+    if (!out) { fclose(in); return false; }
+    char buf[4096];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) { ok = false; break; }
+    }
+    fclose(in);
+    fclose(out);
+    return ok;
+}
 
 
 static bool show_message;
@@ -74,12 +94,12 @@ static void draw (menu_t *menu, surface_t *d) {
 
         if (show_message) {
             ui_components_messagebox_draw(
-                "Set \"%s\" as background image?\n\n"
+                "Set \"%s\" as custom splash?\n\n"
                 "A: Yes, B: Back",
                 menu->browser.entry->name
             );
         } else if (image_set_as_background) {
-            ui_components_messagebox_draw("Preparing background…");
+            ui_components_messagebox_draw("Saving splash…");
         }
     }
 
@@ -93,11 +113,22 @@ static void deinit (menu_t *menu) {
 
     if (image) {
         if (image_set_as_background) {
-            ui_components_background_replace_image(image);
-        } else {
-            surface_free(image);
-            free(image);
+            /* Persist the chosen image into /menu/n64ever/splash.png and enable the
+               custom splash so it shows on the next boot. */
+            char custom_dir[128];
+            snprintf(custom_dir, sizeof(custom_dir), "%s/menu/n64ever", menu->storage_prefix);
+            directory_create(custom_dir);
+            char dst[160];
+            snprintf(dst, sizeof(dst), "%s/menu/n64ever/splash.png", menu->storage_prefix);
+            path_t *src = path_clone_push(menu->browser.directory, menu->browser.entry->name);
+            copy_file(path_get(src), dst);
+            path_free(src);
+
+            menu->settings.custom_splash_enabled = true;
+            settings_save(&menu->settings);
         }
+        surface_free(image);
+        free(image);
     }
 }
 

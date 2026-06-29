@@ -20,12 +20,15 @@
 typedef enum {
     IMAGE_BOXART_FRONT,    /**< Boxart image from the front */
     IMAGE_BOXART_BACK,     /**< Boxart image from the back */
+    IMAGE_BOXART_3D,       /**< 3D-rendered box */
     IMAGE_BOXART_TOP,      /**< Boxart image from the top */
     IMAGE_BOXART_BOTTOM,   /**< Boxart image from the bottom */
     IMAGE_BOXART_LEFT,     /**< Boxart image from the left side */
     IMAGE_BOXART_RIGHT,    /**< Boxart image from the right side */
-    IMAGE_GAMEPAK_FRONT,   /**< GamePak image from the front */
-    IMAGE_GAMEPAK_BACK,    /**< GamePak image from the back */
+    IMAGE_GAMEPAK_FRONT,   /**< GamePak (cartridge) front */
+    IMAGE_GAMEPAK_BACK,    /**< GamePak (cartridge) back */
+    IMAGE_GAMEPAK_3D,      /**< 3D-rendered cartridge */
+    IMAGE_LOGO,            /**< Game logo */
     IMAGE_THUMBNAIL,       /**< File image thumbnail */
     IMAGE_TYPE_END         /**< List end marker */
 } file_image_type_t;
@@ -80,6 +83,15 @@ typedef struct {
 void ui_components_box_draw(int x0, int y0, int x1, int y1, color_t color);
 
 /**
+ * @brief Draw a stylised grey N64 cartridge placeholder centred in the given box.
+ *        Used when a game has no box/cart/logo art to display.
+ */
+void ui_components_cart_placeholder_draw(int x0, int y0, int x1, int y1);
+
+/** @brief Draw the 64DD-disc placeholder (rom:/placeholder-disc.sprite) aspect-fit in the box. */
+void ui_components_disc_placeholder_draw(int x0, int y0, int x1, int y1);
+
+/**
  * @brief Draw a border component.
  * 
  * @param x0 Starting x-coordinate.
@@ -109,6 +121,18 @@ void ui_components_layout_draw(void);
  * @param progress Progress value (0.0 to 1.0).
  */
 void ui_components_progressbar_draw(int x0, int y0, int x1, int y1, float progress);
+
+
+/**
+ * @brief Draw a rainbow progress bar (hue gradient; filled bright, rest dimmed).
+ *
+ * @param x0 Starting x-coordinate.
+ * @param y0 Starting y-coordinate.
+ * @param x1 Ending x-coordinate.
+ * @param y1 Ending y-coordinate.
+ * @param progress Progress value (0.0 to 1.0).
+ */
+void ui_components_progressbar_draw_rainbow(int x0, int y0, int x1, int y1, float progress);
 
 /**
  * @brief Draw a seek bar component.
@@ -186,11 +210,26 @@ void ui_components_main_text_draw(menu_font_type_t style, rdpq_align_t align, rd
 void ui_components_actions_bar_text_draw(menu_font_type_t style, rdpq_align_t align, rdpq_valign_t valign, char *fmt, ...);
 
 /**
+ * @brief Draw the standardized actions bar with up to five fixed-slot button hints.
+ *
+ * A is left-anchored, R right-anchored, and B/S/C are equidistant between them,
+ * so each button keeps the same screen position across every view. Pass NULL for
+ * any unused slot.
+ *
+ * @param a Label for the A slot (left-anchored).
+ * @param b Label for the B slot.
+ * @param s Label for the S (Start) slot.
+ * @param c Label for the C slot.
+ * @param r Label for the R slot (right-anchored).
+ */
+void ui_components_actions_bar_buttons_draw(const char *a, const char *b, const char *s, const char *c, const char *r);
+
+/**
  * @brief Initialize the background component.
  * 
  * @param cache_location Location of the cache.
  */
-void ui_components_background_init(char *cache_location);
+void ui_components_background_init(char *cache_location, bool decode_custom_splash);
 
 /**
  * @brief Free the background component resources.
@@ -205,9 +244,19 @@ void ui_components_background_free(void);
 void ui_components_background_replace_image(surface_t *image);
 
 /**
- * @brief Draw the background component.
+ * @brief Clear to the background color (replaces the old image-draw for all menu views).
  */
 void ui_components_background_draw(void);
+
+/**
+ * @brief Draw the background image full-screen (used only as the boot splash overlay).
+ */
+void ui_components_background_draw_splash(bool use_custom);
+
+/**
+ * @brief Draw the user background image full-screen behind a view (Files only).
+ */
+void ui_components_background_draw_image(void);
 
 /**
  * @brief Draw the file list component.
@@ -216,7 +265,16 @@ void ui_components_background_draw(void);
  * @param entries Number of entries.
  * @param selected Index of the selected entry.
  */
-void ui_components_file_list_draw(entry_t *list, int entries, int selected);
+void ui_components_file_list_draw(entry_t *list, int entries, int selected, bool *is_fav, bool show_file_size);
+
+/**
+ * @brief Get a colour from the shared animated rainbow palette.
+ *
+ * @param hue Hue 0-255.
+ * @param brightness Brightness 0-255.
+ * @return color_t The rainbow colour.
+ */
+color_t ui_components_rainbow_color(uint8_t hue, uint8_t brightness);
 
 /**
  * @brief Context menu structure.
@@ -225,6 +283,7 @@ typedef struct component_context_menu {
     int row_count; /**< Number of rows in the context menu */
     int row_selected; /**< Index of the selected row */
     bool hide_pending; /**< Flag to indicate if hiding is pending */
+    bool left_align; /**< When true, text is left-aligned instead of centered */
     struct component_context_menu *parent; /**< Pointer to the parent context menu */
     struct component_context_menu *submenu; /**< Pointer to the submenu */
     int (*get_default_selection)(menu_t *menu); /**< Optional function to get the default selected row */
@@ -273,8 +332,23 @@ void ui_components_context_menu_draw(component_context_menu_t *cm);
  */
 typedef struct {
     bool loading; /**< Flag to indicate if the box art is loading */
-    surface_t *image; /**< Pointer to the box art image */
+    surface_t *image; /**< Pointer to the box art image (PNG-decoded or sprite view) */
+    sprite_t *sprite; /**< Backing sprite when loaded from the ROM DFS (NULL otherwise) */
+    file_image_type_t type; /**< the image type that actually loaded (after the fallback chain) */
+    bool is_dd; /**< true for a 64DD disk/expansion code (game_code[0] == 'D' or 'E') */
 } component_boxart_t;
+
+/** Alpha-compare threshold for drawing this art: higher for N64 3D-cart art (crops the soft
+ *  anti-aliased fringe that a 1-bit cutout renders opaque — the "eaten" look), 1 otherwise. */
+int ui_components_boxart_alpha_threshold(const component_boxart_t *b);
+
+/**
+ * @brief Map a grid image-view setting to the corresponding loader image type.
+ *
+ * @param view The grid_image_view_t value from settings.
+ * @return The matching file_image_type_t.
+ */
+file_image_type_t ui_components_boxart_view_to_type(int view);
 
 /**
  * @brief Initialize the box art component.
@@ -285,7 +359,7 @@ typedef struct {
  * @param current_image_view Current image view type.
  * @return Pointer to the initialized box art component.
  */
-component_boxart_t *ui_components_boxart_init(const char *storage_prefix, const char *game_code, const char *rom_title, file_image_type_t current_image_view);
+component_boxart_t *ui_components_boxart_init(const char *storage_prefix, const char *game_code, const char *rom_title, const char *rom_path_hint, file_image_type_t current_image_view, bool use_custom);
 
 /**
  * @brief Free the box art component resources.

@@ -155,41 +155,50 @@ float png_decoder_get_progress (void) {
     return (float) (decoder->decoded_rows) / (decoder->ihdr.height);
 }
 
+/** @brief Rows decoded per poll. One row/frame made grid covers take ~5s each
+ *  (serialized), so a freshly-favorited folder looked blank. A batch keeps the
+ *  menu responsive while filling covers in a fraction of a second. */
+#define PNG_ROWS_PER_POLL 24
+
 /**
- * @brief Poll the PNG decoder to process the next row.
+ * @brief Poll the PNG decoder to process a batch of rows.
  */
 void png_decoder_poll (void) {
     if (!decoder) {
         return;
     }
 
-    enum spng_errno err;
-    struct spng_row_info row_info;
+    for (int n = 0; n < PNG_ROWS_PER_POLL; n++) {
+        enum spng_errno err;
+        struct spng_row_info row_info;
 
-    if ((err = spng_get_row_info(decoder->ctx, &row_info)) != SPNG_OK) {
-        decoder->callback(PNG_ERR_BAD_FILE, NULL, decoder->callback_data);
-        png_decoder_deinit(true);
-        return;
-    }
-
-    err = spng_decode_row(decoder->ctx, decoder->row_buffer, decoder->ihdr.width * 3);
-
-    if (err == SPNG_OK || err == SPNG_EOI) {
-        decoder->decoded_rows += 1;
-        uint16_t *image_buffer = decoder->image->buffer + (row_info.row_num * decoder->image->stride);
-        for (int i = 0; i < decoder->ihdr.width * 3; i += 3) {
-            uint8_t r = decoder->row_buffer[i + 0] >> 3;
-            uint8_t g = decoder->row_buffer[i + 1] >> 3;
-            uint8_t b = decoder->row_buffer[i + 2] >> 3;
-            *image_buffer++ = (r << 11) | (g << 6) | (b << 1) | 1;
+        if ((err = spng_get_row_info(decoder->ctx, &row_info)) != SPNG_OK) {
+            decoder->callback(PNG_ERR_BAD_FILE, NULL, decoder->callback_data);
+            png_decoder_deinit(true);
+            return;
         }
-    }
 
-    if (err == SPNG_EOI) {
-        decoder->callback(PNG_OK, decoder->image, decoder->callback_data);
-        png_decoder_deinit(false);
-    } else if (err != SPNG_OK) {
-        decoder->callback(PNG_ERR_BAD_FILE, NULL, decoder->callback_data);
-        png_decoder_deinit(true);
+        err = spng_decode_row(decoder->ctx, decoder->row_buffer, decoder->ihdr.width * 3);
+
+        if (err == SPNG_OK || err == SPNG_EOI) {
+            decoder->decoded_rows += 1;
+            uint16_t *image_buffer = decoder->image->buffer + (row_info.row_num * decoder->image->stride);
+            for (int i = 0; i < decoder->ihdr.width * 3; i += 3) {
+                uint8_t r = decoder->row_buffer[i + 0] >> 3;
+                uint8_t g = decoder->row_buffer[i + 1] >> 3;
+                uint8_t b = decoder->row_buffer[i + 2] >> 3;
+                *image_buffer++ = (r << 11) | (g << 6) | (b << 1) | 1;
+            }
+        }
+
+        if (err == SPNG_EOI) {
+            decoder->callback(PNG_OK, decoder->image, decoder->callback_data);
+            png_decoder_deinit(false);
+            return;
+        } else if (err != SPNG_OK) {
+            decoder->callback(PNG_ERR_BAD_FILE, NULL, decoder->callback_data);
+            png_decoder_deinit(true);
+            return;
+        }
     }
 }

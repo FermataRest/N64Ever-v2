@@ -34,46 +34,35 @@ static const char *format_cart_version () {
 }
 
 static void process (menu_t *menu) {
-    if (menu->actions.back) {
+    /* Both A and B exit this info popup. */
+    if (menu->actions.back || menu->actions.enter) {
         sound_play_effect(SFX_EXIT);
-        menu->next_mode = MENU_MODE_BROWSER;
+        menu->next_mode = menu->load.load_return_mode ? menu->load.load_return_mode : MENU_MODE_BROWSER;
+        menu->load.load_return_mode = 0;
     }
 }
 
 static void draw (menu_t *menu, surface_t *d) {
     rdpq_attach(d, NULL);
 
-    ui_components_background_draw();
+    /* Grid backdrop is standard for these popups (regardless of entry point). */
+    view_games_grid_draw_background(menu, d);
 
-    ui_components_layout_draw();
-
-    ui_components_main_text_draw(
-        STL_DEFAULT,
-        ALIGN_CENTER, VALIGN_TOP,
-        "FLASHCART INFORMATION"
+    /* Compact popup instead of a full-screen panel. */
+    ui_components_messagebox_draw(
+        "Flashcart Information\n"
         "\n"
+        "Type: %s\n"
+        "Firmware: %s\n"
         "\n"
-    );
-
-    ui_components_main_text_draw(
-        STL_DEFAULT,
-        ALIGN_LEFT, VALIGN_TOP,
-        "\n"
-        "\n"
-        "Type:\n"
-        "  %s\n\n"
-        "Firmware:\n"
-        "  Version: %s\n\n"
-        "Features:\n"
-        "  Virtual 64DD:     %s.\n"
-        "  Real Time Clock:  %s.\n"
-        "  USB Debugging:    %s.\n"
-        "  Automatic CIC:    %s.\n"
-        "  Region Detection: %s.\n"
-        "  Save Writeback:   %s.\n"
-        "  Auto F/W Updates: %s.\n"
-        "  Fast ROM Reboots: %s.\n"
-        "\n\n",
+        "Virtual 64DD:     %s\n"
+        "Real Time Clock:  %s\n"
+        "USB Debugging:    %s\n"
+        "Automatic CIC:    %s\n"
+        "Region Detection: %s\n"
+        "Save Writeback:   %s\n"
+        "Auto F/W Updates: %s\n"
+        "Fast ROM Reboots: %s",
         format_cart_type(),
         format_cart_version(),
         format_boolean_type(flashcart_has_feature(FLASHCART_FEATURE_64DD)),
@@ -84,16 +73,6 @@ static void draw (menu_t *menu, surface_t *d) {
         format_boolean_type(flashcart_has_feature(FLASHCART_FEATURE_SAVE_WRITEBACK)),
         format_boolean_type(flashcart_has_feature(FLASHCART_FEATURE_BIOS_UPDATE_FROM_MENU)),
         format_boolean_type(flashcart_has_feature(FLASHCART_FEATURE_ROM_REBOOT_FAST))
-
-        //TODO: display the battery and temperature information (if available).
-        //format_diagnostic_data(flashcart_has_feature(FLASHCART_FEATURE_DIAGNOSTIC_DATA))
-    );
-
-    ui_components_actions_bar_text_draw(
-        STL_DEFAULT,
-        ALIGN_LEFT, VALIGN_TOP,
-        "\n"
-        "B: Back"
     );
 
     rdpq_detach_show();

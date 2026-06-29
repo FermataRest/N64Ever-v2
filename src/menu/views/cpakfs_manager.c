@@ -4,6 +4,7 @@
 #include "views.h"
 #include "../sound.h"
 #include "../fonts.h"
+#include "../ui_components/constants.h"
 #include <errno.h>
 #include <dir.h>
 #include "utils/fs.h"
@@ -58,8 +59,8 @@ static bool start_single_note_dump;
 static bool start_single_note_delete;
 static bool start_format_controller_pak;
 
-static char * CPAK_PATH = "sd:/cpak_saves";
-static char * CPAK_NOTES_PATH = "sd:/cpak_saves/notes";
+static char * CPAK_PATH = "sd:/menu/cpak_saves";
+static char * CPAK_NOTES_PATH = "sd:/menu/cpak_saves/notes";
 
 static void reset_vars(){
     has_mem = false;
@@ -446,7 +447,8 @@ static void process (menu_t *menu) {
                     memset(&stats_per_port[i], 0, sizeof(stats_per_port[i]));
                 }
                 sound_play_effect(SFX_EXIT);
-                menu->next_mode = MENU_MODE_BROWSER;
+                menu->next_mode = menu->load.load_return_mode ? menu->load.load_return_mode : MENU_MODE_BROWSER;
+                menu->load.load_return_mode = 0;
             } else if (menu->actions.options && use_rtc && has_mem) {
                 sound_play_effect(SFX_SETTING);
                 ui_components_context_menu_show(&options_context_menu);
@@ -609,7 +611,9 @@ static void process (menu_t *menu) {
 static void draw (menu_t *menu, surface_t *d) {
     rdpq_attach(d, NULL);
 
-    ui_components_background_draw();
+    /* Plain black background for the Controller Pak management menu (user preference --
+       was the games-grid cover-wall + a dark inset panel). */
+    ui_components_box_draw(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, RGBA32(0x00, 0x00, 0x00, 0xFF));
 
     ui_components_layout_draw();
 

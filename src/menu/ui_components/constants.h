@@ -258,6 +258,26 @@
  */
 #define LIST_ENTRIES                    (19)
 /**
+ * @def FILE_LIST_PATH_H
+ * @brief Height (pixels) reserved for the path breadcrumb header above the file list.
+ */
+#define FILE_LIST_PATH_H                (14)
+/**
+ * @def FILE_LIST_ENTRIES
+ * @brief Rows shown in the frameless, tab-less Files browser.
+ */
+#define FILE_LIST_ENTRIES               (19)
+/**
+ * @def FILE_LIST_TOP_Y
+ * @brief Y origin of the frameless Files list — leaves room for the path header.
+ */
+#define FILE_LIST_TOP_Y                 (VISIBLE_AREA_Y0 + FILE_LIST_PATH_H + 3)
+/**
+ * @def FILE_LIST_AREA_H
+ * @brief Vertical budget of the frameless Files list.
+ */
+#define FILE_LIST_AREA_H                (LAYOUT_ACTIONS_SEPARATOR_Y - FILE_LIST_TOP_Y - TEXT_MARGIN_VERTICAL)
+/**
  * @def FILE_LIST_MAX_WIDTH
  * @brief Maximum width for a file list entry (pixels).
  */
@@ -272,6 +292,16 @@
  * @brief X coordinate of the file list highlight.
  */
 #define FILE_LIST_HIGHLIGHT_X           (VISIBLE_AREA_X0)
+/**
+ * @def FILE_LIST_SCROLL_ARROW_GAP
+ * @brief Right-edge reserve (pixels) for the file list scroll arrows.
+ */
+#define FILE_LIST_SCROLL_ARROW_GAP      (18)
+/**
+ * @def FILE_LIST_SIZE_COL_W
+ * @brief Fixed width (pixels) reserved for the optional file-size column.
+ */
+#define FILE_LIST_SIZE_COL_W            (72)
 
 /**
  * @def BACKGROUND_EMPTY_COLOR

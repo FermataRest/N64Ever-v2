@@ -3,6 +3,7 @@
 #include <libdragon.h>
 #include <sys/time.h>
 #include "../sound.h"
+#include "../ui_components/constants.h"
 #include "views.h"
 
 #define MAX(a,b)  ({ typeof(a) _a = a; typeof(b) _b = b; _a > _b ? _a : _b; })
@@ -67,39 +68,55 @@ void adjust_rtc_time( struct tm *t, int incr ) {
  * @param selected_field The field currently selected for editing (year, month, day, etc.).
  */
 void rtc_ui_component_editdatetime_draw ( struct tm t, rtc_field_t selected_field ) {
-    /* Format RTC date/time as strings */
-    char str_year[5];
-    snprintf(str_year, sizeof(str_year), "%04d", CLAMP(t.tm_year + 1900, YEAR_MIN, YEAR_MAX));
-    char str_month[3];
-    snprintf(str_month, sizeof(str_month), "%02d", CLAMP(t.tm_mon + 1, 1, 12));
-    char str_day[3];
-    snprintf(str_day, sizeof(str_day), "%02d", CLAMP(t.tm_mday, 1, 31));
-    char str_hour[3];
-    snprintf(str_hour, sizeof(str_hour), "%02d", CLAMP(t.tm_hour, 0, 23));
-    char str_min[3];
-    snprintf(str_min, sizeof(str_min), "%02d", CLAMP(t.tm_min, 0, 59));
-    char str_sec[3];
-    snprintf(str_sec, sizeof(str_sec), "%02d", CLAMP(t.tm_sec, 0, 59));
-    char str_dow[4];
-    snprintf(str_dow, sizeof(str_dow), "%s", DAYS_OF_WEEK[CLAMP(t.tm_wday, 0, 6)]);
+    static const char *hdrs[7] = { "YYYY", "MM", "DD", "hh", "mm", "ss", "DoW" };
+    char vals[7][6];
+    snprintf(vals[0], sizeof(vals[0]), "%04d", CLAMP(t.tm_year + 1900, YEAR_MIN, YEAR_MAX));
+    snprintf(vals[1], sizeof(vals[1]), "%02d", CLAMP(t.tm_mon + 1, 1, 12));
+    snprintf(vals[2], sizeof(vals[2]), "%02d", CLAMP(t.tm_mday, 1, 31));
+    snprintf(vals[3], sizeof(vals[3]), "%02d", CLAMP(t.tm_hour, 0, 23));
+    snprintf(vals[4], sizeof(vals[4]), "%02d", CLAMP(t.tm_min, 0, 59));
+    snprintf(vals[5], sizeof(vals[5]), "%02d", CLAMP(t.tm_sec, 0, 59));
+    snprintf(vals[6], sizeof(vals[6]), "%s", DAYS_OF_WEEK[CLAMP(t.tm_wday, 0, 6)]);
 
-    ui_component_value_editor(
-        (const char *[]){
-            "YYYY", "MM", "DD", "hh", "mm", "ss", "DoW"
-        },
-        (const char *[]){
-            str_year, str_month, str_day, str_hour, str_min, str_sec, str_dow
-        },
-        7,
-        selected_field,
-        12.0f
-    );
+    /* Self-contained popup: a rainbow-rimmed box holding the 7 fields and the
+       control hints, sized snugly to the content (no full-screen takeover). */
+    const int n = 7, col_w = 48, pad = 18, line_h = 16, gap = 12;
+    int box_w = n * col_w + pad * 2;
+    int box_h = pad + line_h * 2 /* header + value */ + gap + line_h * 2 /* 2 hint lines */ + pad;
+
+    ui_components_dialog_draw(box_w, box_h);
+
+    int bx0  = DISPLAY_CENTER_X - box_w / 2;
+    int by0  = DISPLAY_CENTER_Y - box_h / 2;
+    int fx0  = bx0 + pad;
+    int hy   = by0 + pad;          /* header row */
+    int vy   = hy + line_h;        /* value row  */
+
+    /* Highlight the selected field's column behind its text. */
+    int hx = fx0 + (int)selected_field * col_w;
+    /* rdpq_text_print's y is the glyph baseline (text ascends above it), so anchor
+       the highlight to the visual top of the header row down to just below the value
+       -- otherwise it sits a row low and overhangs into empty space. */
+    ui_components_box_draw(hx, hy - line_h + 2, hx + col_w, vy + 4, RGBA32(0x4C, 0x4C, 0x60, 0xFF));
+
+    for (int i = 0; i < n; i++) {
+        int cx = fx0 + i * col_w;
+        rdpq_textparms_t tp = { .width = col_w, .align = ALIGN_CENTER, .wrap = WRAP_NONE };
+        rdpq_text_print(&tp, FNT_DEFAULT, cx, hy, hdrs[i]);
+        rdpq_text_print(&tp, FNT_DEFAULT, cx, vy, vals[i]);
+    }
+
+    int hint_y = vy + line_h + gap;
+    rdpq_textparms_t hp = { .width = box_w - pad * 2, .align = ALIGN_CENTER, .wrap = WRAP_NONE };
+    rdpq_text_print(&hp, FNT_DEFAULT, fx0, hint_y,          "Up/Down: Adjust   Left/Right: Field");
+    rdpq_text_print(&hp, FNT_DEFAULT, fx0, hint_y + line_h, "R: Save   B: Back");
 }
 
 static void process (menu_t *menu) {
     if (menu->actions.back && !is_editing_mode) {
         sound_play_effect(SFX_EXIT);
-        menu->next_mode = MENU_MODE_BROWSER;
+        menu->next_mode = menu->load.load_return_mode ? menu->load.load_return_mode : MENU_MODE_BROWSER;
+        menu->load.load_return_mode = 0;
     }
     else if (menu->actions.enter && !is_editing_mode && menu->current_time >= 0) {
         rtc_tm = *gmtime(&menu->current_time);
@@ -144,74 +161,31 @@ static void process (menu_t *menu) {
 static void draw (menu_t *menu, surface_t *d) {
     rdpq_attach(d, NULL);
 
-    ui_components_background_draw();
-
-    ui_components_layout_draw();
+    /* Both states are popups over the grid backdrop — no full-screen takeover. */
+    view_games_grid_draw_background(menu, d);
 
     if (!is_editing_mode) {
-         if( menu->current_time >= 0 ) {
-
-            ui_components_main_text_draw(
-                STL_DEFAULT,
-                ALIGN_CENTER, VALIGN_TOP,
-                "ADJUST REAL TIME CLOCK\n"
+        /* Compact popup instead of a full-screen panel. */
+        if (menu->current_time >= 0) {
+            ui_components_messagebox_draw(
+                "Real Time Clock\n"
                 "\n"
+                "Current: %s"
                 "\n"
-                "To set the RTC date and time, Press A.\n"
-                "You can also use the PC terminal application via USB,\n"
-                "or even an N64 game with RTC support.\n"
-                "\n"
-                "Current date & time: %s\n"
-                "\n",
-                menu->current_time >= 0 ? ctime(&menu->current_time) : "Unknown"
+                "A: Adjust    B: Back",
+                ctime(&menu->current_time)
             );
-
-            ui_components_actions_bar_text_draw(
-                STL_DEFAULT,
-                ALIGN_LEFT, VALIGN_TOP,
-                "A: Adjust time\n"
-                "B: Back"
-            );
-         }
-         else {
-
-            ui_components_main_text_draw(
-                STL_DEFAULT,
-                ALIGN_CENTER, VALIGN_TOP,
-                "ADJUST REAL TIME CLOCK\n"
+        } else {
+            ui_components_messagebox_draw(
+                "Real Time Clock\n"
                 "\n"
-                "\n"
-                "This cart does not support a real time clock."
-                "\n"
-                "Current date & time: %s\n"
-                "\n",
-                menu->current_time >= 0 ? ctime(&menu->current_time) : "Unknown"
-            );
-
-            ui_components_actions_bar_text_draw(
-                STL_DEFAULT,
-                ALIGN_LEFT, VALIGN_TOP,
+                "This cart has no real time clock.\n"
                 "\n"
                 "B: Back"
             );
-         }
-    }
-    else {
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_RIGHT, VALIGN_TOP,
-            "Up/Down: Adjust Field\n"
-            "Left/Right: Switch Field"
-        );
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "R: Save\n"
-            "B: Back"
-        );
-    }
-
-    if (is_editing_mode) {
+        }
+    } else {
+        /* Editing: a single self-framed popup (fields + hints inside one box). */
         rtc_ui_component_editdatetime_draw(rtc_tm, editing_field_type);
     }
 

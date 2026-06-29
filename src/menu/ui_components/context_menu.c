@@ -87,16 +87,22 @@ bool ui_components_context_menu_process(menu_t *menu, component_context_menu_t *
         }
         sound_play_effect(SFX_ENTER);
     } else if (menu->actions.go_up) {
-        cm->row_selected -= 1;
-        if (cm->row_selected < 0) {
-            cm->row_selected = 0;
-        }
+        /* Wrap around the top, skipping blank separator rows ({ .text = "" }). */
+        do {
+            cm->row_selected -= 1;
+            if (cm->row_selected < 0) {
+                cm->row_selected = cm->row_count - 1;
+            }
+        } while (cm->list[cm->row_selected].text && cm->list[cm->row_selected].text[0] == '\0');
         sound_play_effect(SFX_CURSOR);
     } else if (menu->actions.go_down) {
-        cm->row_selected += 1;
-        if (cm->row_selected >= cm->row_count) {
-            cm->row_selected = (cm->row_count - 1);
-        }
+        /* Wrap around the bottom, skipping blank separator rows ({ .text = "" }). */
+        do {
+            cm->row_selected += 1;
+            if (cm->row_selected >= cm->row_count) {
+                cm->row_selected = 0;
+            }
+        } while (cm->list[cm->row_selected].text && cm->list[cm->row_selected].text[0] == '\0');
         sound_play_effect(SFX_CURSOR);
     }
 
@@ -117,12 +123,14 @@ void ui_components_context_menu_draw(component_context_menu_t *cm) {
 
     cm = get_current_submenu(cm);
 
+    bool la = top->left_align;
+
     rdpq_paragraph_builder_begin(
         &(rdpq_textparms_t) {
-            .width = VISIBLE_AREA_WIDTH,
-            .height = VISIBLE_AREA_HEIGHT,
-            .align = ALIGN_CENTER,
-            .valign = VALIGN_CENTER,
+            .width        = la ? MESSAGEBOX_MAX_WIDTH : VISIBLE_AREA_WIDTH,
+            .height       = VISIBLE_AREA_HEIGHT,
+            .align        = la ? ALIGN_LEFT : ALIGN_CENTER,
+            .valign       = VALIGN_CENTER,
             .line_spacing = TEXT_LINE_SPACING_ADJUST,
         },
         FNT_DEFAULT,
@@ -140,24 +148,39 @@ void ui_components_context_menu_draw(component_context_menu_t *cm) {
     rdpq_paragraph_t *layout = rdpq_paragraph_builder_end();
 
     int width = layout->bbox.x1 - layout->bbox.x0 + MESSAGEBOX_MARGIN;
+    /* Floor the width so a menu doesn't visibly resize as a variable-length label changes
+       (e.g. the grid's "Favorite N/M" count or the Favorite/Unfavorite verb). Menus whose
+       content is wider than this still size to fit; their labels are fixed, so no jitter. */
+    if (width < 240) width = 240;
     int height = layout->bbox.y1 - layout->bbox.y0 + MESSAGEBOX_MARGIN;
 
+    /* The rainbow rim is drawn by ui_components_dialog_draw (shared by all dialogs). */
     ui_components_dialog_draw(width, height);
 
-    int highlight_x0 = DISPLAY_CENTER_X - (width / 2);
-    int highlight_x1 = DISPLAY_CENTER_X + (width / 2);
-    int highlight_height = (layout->bbox.y1 - layout->bbox.y0) / layout->nlines;
-    int highlight_y = VISIBLE_AREA_Y0 + layout->bbox.y0 + ((cm->row_selected) * highlight_height);
+    int dialog_x0 = DISPLAY_CENTER_X - (width / 2);
+    int highlight_x0 = dialog_x0;
+    int highlight_x1 = dialog_x0 + width;
+    /* Guard against a degenerate (empty) layout: nlines == 0 would divide by zero
+       (bbox is float, so this faults as an FPU DIV0 exception). Skip the highlight. */
+    if (layout->nlines > 0) {
+        int highlight_height = (layout->bbox.y1 - layout->bbox.y0) / layout->nlines;
+        int highlight_y = VISIBLE_AREA_Y0 + layout->bbox.y0 + ((cm->row_selected) * highlight_height);
 
-    ui_components_box_draw(
-        highlight_x0,
-        highlight_y,
-        highlight_x1,
-        highlight_y + highlight_height,
-        CONTEXT_MENU_HIGHLIGHT_COLOR
-    );
+        ui_components_box_draw(
+            highlight_x0,
+            highlight_y,
+            highlight_x1,
+            highlight_y + highlight_height,
+            CONTEXT_MENU_HIGHLIGHT_COLOR
+        );
+    }
 
-    rdpq_paragraph_render(layout, VISIBLE_AREA_X0, VISIBLE_AREA_Y0);
+    /* For left-aligned menus render text at the inner-left of the dialog box;
+       for centered menus use the standard VISIBLE_AREA origin (text is
+       self-centering via ALIGN_CENTER + the paragraph bbox offset). */
+    int render_x = la ? (dialog_x0 + MESSAGEBOX_MARGIN / 2) : VISIBLE_AREA_X0;
+
+    rdpq_paragraph_render(layout, render_x, VISIBLE_AREA_Y0);
 
     rdpq_paragraph_free(layout);
 

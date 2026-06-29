@@ -70,12 +70,7 @@ static void draw (menu_t *menu, surface_t *d) {
             menu->browser.entry->name
         );
 
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "A: Load and run Emulated ROM\n"
-            "B: Exit"
-        );
+        ui_components_actions_bar_buttons_draw("A: Run", "B: Back", NULL, NULL, NULL);
     }
 
     rdpq_detach_show();

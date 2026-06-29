@@ -3,106 +3,19 @@
 #include "../datel_codes.h"
 #include "../rom_info.h"
 #include "../sound.h"
+#include "../ui_components/constants.h"
 #include "boot/boot.h"
 #include "utils/fs.h"
 #include "views.h"
 #include <string.h>
 
+static void draw_load_content(float progress); /* forward decl */
+
 static bool show_extra_info_message = false;
 static bool show_advanced_info_message = false;
-static component_boxart_t *boxart;
 static char *rom_filename = NULL;
-
-static int16_t current_metadata_image_index = 0;
-static const file_image_type_t metadata_image_filename_cache[] = {
-    IMAGE_BOXART_FRONT,
-    IMAGE_BOXART_BACK,
-    IMAGE_BOXART_LEFT,
-    IMAGE_BOXART_RIGHT,
-    IMAGE_BOXART_TOP,
-    IMAGE_BOXART_BOTTOM,
-    IMAGE_GAMEPAK_FRONT,
-    IMAGE_GAMEPAK_BACK
-};
-static const uint16_t metadata_image_filename_cache_length = sizeof(metadata_image_filename_cache) / sizeof(metadata_image_filename_cache[0]);
-static bool metadata_image_available[sizeof(metadata_image_filename_cache) / sizeof(metadata_image_filename_cache[0])] = {false};
-static bool metadata_images_scanned = false;
-
-static void scan_metadata_images(menu_t *menu) {
-    if (metadata_images_scanned) {
-        return;
-    }
-
-    path_t *path = path_init(menu->storage_prefix, "menu/metadata"); // should be METADATA_BASE_DIRECTORY
-    char game_code_path[50];
-
-    if (menu->load.rom_info.game_code[1] == 'E' && menu->load.rom_info.game_code[2] == 'D') {
-        // This is using a homebrew ROM ID, use the title for the file name instead.
-        // Create a null-terminated copy of the title for safe string operations
-        char safe_title[21];  // 20 chars + null terminator
-        memcpy(safe_title, menu->load.rom_info.title, 20);
-        safe_title[20] = '\0';
-        
-        snprintf(game_code_path, sizeof(game_code_path), "homebrew/%s", safe_title); // should be HOMEBREW_ID_SUBDIRECTORY
-        path_push(path, game_code_path);
-    }
-    else {
-        snprintf(game_code_path, sizeof(game_code_path), "%c/%c/%c/%c",
-            menu->load.rom_info.game_code[0],
-            menu->load.rom_info.game_code[1],
-            menu->load.rom_info.game_code[2],
-            menu->load.rom_info.game_code[3]);
-        path_push(path, game_code_path);
-
-        if (!directory_exists(path_get(path))) { // Allow boxart to not specify the region code.
-            path_pop(path);
-        }
-    }
-
-    bool dir_exists = directory_exists(path_get(path));
-
-    if (dir_exists) {
-        // Filenames array matches metadata_image_filename_cache order for indexed access
-        // Note: This mapping is also present in boxart.c but duplicated here
-        // for efficient scanning without calling into the component layer
-        char *filenames[] = {
-            "boxart_front.png",
-            "boxart_back.png",
-            "boxart_left.png",
-            "boxart_right.png",
-            "boxart_top.png",
-            "boxart_bottom.png",
-            "gamepak_front.png",
-            "gamepak_back.png"
-        };
-
-        for (uint16_t i = 0; i < metadata_image_filename_cache_length; i++) {
-            path_push(path, filenames[i]);
-            metadata_image_available[i] = file_exists(path_get(path));
-            path_pop(path);
-        }
-    } else {
-        // No directory exists, mark all images as unavailable
-        for (uint16_t i = 0; i < metadata_image_filename_cache_length; i++) {
-            metadata_image_available[i] = false;
-        }
-    }
-
-    debugf("Metadata: Scanned metadata for ROM ID %s. \n", game_code_path);
-
-    path_free(path);
-    metadata_images_scanned = true;
-}
-
-static const char *format_rom_description(menu_t *menu) {
-    const char *rom_description = NULL;
-
-    if (menu->load.rom_info.meta.short_description != NULL && strlen(menu->load.rom_info.meta.short_description) > 0) {
-        rom_description = menu->load.rom_info.meta.short_description;
-    }
-
-    return rom_description ? rom_description : "No description available.";
-}
+static component_boxart_t *load_boxart = NULL;
+static menu_t *load_menu_ptr = NULL; /* used by draw_progress to access from_grid flag */
 
 static char *convert_error_message (rom_err_t err) {
     switch (err) {
@@ -310,41 +223,6 @@ static void set_patcher_option(menu_t *menu, void *arg) {
 }
 #endif
 
-static void add_favorite (menu_t *menu, void *arg) {
-    bookkeeping_favorite_add(&menu->bookkeeping, menu->load.rom_path, NULL, BOOKKEEPING_TYPE_ROM);
-}
-
-static void iterate_metadata_image(menu_t *menu, int direction) {
-    scan_metadata_images(menu);
-
-    // Transverse to next/previous available image based on direction (1 = next, -1 = previous)
-    int16_t start_metadata_image_index = current_metadata_image_index;
-    int16_t new_metadata_image_index = (current_metadata_image_index + direction + metadata_image_filename_cache_length) % metadata_image_filename_cache_length;
-
-    // Find next available image from our cached list
-    while (new_metadata_image_index != start_metadata_image_index) {
-        if (metadata_image_available[new_metadata_image_index]) {
-            // ui_components_boxart_init returns NULL if PNG decoder is busy
-            component_boxart_t *new_boxart = ui_components_boxart_init(
-                menu->storage_prefix,
-                menu->load.rom_info.game_code,
-                menu->load.rom_info.title,
-                metadata_image_filename_cache[new_metadata_image_index]
-            );
-
-            if (new_boxart != NULL) {
-                // Only free old boxart after successful new allocation
-                ui_components_boxart_free(boxart);
-                boxart = new_boxart;
-                current_metadata_image_index = new_metadata_image_index;
-                sound_play_effect(SFX_SETTING);
-                break;
-            }
-        }
-        new_metadata_image_index = (new_metadata_image_index + direction + metadata_image_filename_cache_length) % metadata_image_filename_cache_length;
-    }
-}
-
 static component_context_menu_t set_cic_type_context_menu = { .list = {
     {.text = "Automatic", .action = set_cic_type, .arg = (void *) (ROM_CIC_TYPE_AUTOMATIC) },
     {.text = "CIC-6101", .action = set_cic_type, .arg = (void *) (ROM_CIC_TYPE_6101) },
@@ -402,6 +280,7 @@ static void set_menu_next_mode (menu_t *menu, void *arg) {
     menu->next_mode = next_mode;
 }
 
+/* "Advanced options" — the legacy ROM option popup, now a submenu of Game settings. */
 static component_context_menu_t options_context_menu = { .list = {
     { .text = "Set CIC Type", .submenu = &set_cic_type_context_menu },
     { .text = "Set Save Type", .submenu = &set_save_type_context_menu },
@@ -414,175 +293,197 @@ static component_context_menu_t options_context_menu = { .list = {
 #ifdef FEATURE_PATCHER_GUI_ENABLED
     { .text = "Use Patches", .submenu = &set_patcher_options_menu },
 #endif
-    { .text = "Add to favorites", .action = add_favorite },
     COMPONENT_CONTEXT_MENU_LIST_END,
 }};
 
+/* ---- Game settings menu (replaces the legacy detailed ROM view) ---- */
+static void gs_show_advanced_info (menu_t *menu, void *arg);
+static void gs_show_extra_info (menu_t *menu, void *arg);
+
+/* Row labels carry the current value; the buffers are updated in place, so the
+   menu's .text pointers (set to these buffers) never need reassigning. */
+static char gs_save_label[64]     = "Save Type";
+static char gs_tv_label[48]       = "TV region";
+static char gs_exp_label[48]      = "Expansion PAK";
+static char gs_rumble_label[40]   = "Rumble PAK";
+static char gs_transfer_label[40] = "Transfer PAK";
+static char gs_cheats_label[40]   = "Datel Cheats";
+
+static component_context_menu_t game_settings_context_menu = { .list = {
+    { .text = gs_save_label,      .submenu = &set_save_type_context_menu },
+    { .text = gs_tv_label,        .submenu = &set_tv_type_context_menu },
+    { .text = gs_exp_label },                                  /* read-only info */
+    { .text = gs_rumble_label },                               /* read-only info */
+    { .text = gs_transfer_label },                             /* read-only info */
+    { .text = gs_cheats_label,    .submenu = &set_cheat_options_menu },
+    { .text = "" },                                            /* separator */
+    { .text = "Advanced options", .submenu = &options_context_menu },
+    { .text = "Advanced Info",    .action = gs_show_advanced_info },
+    { .text = "Extra ROM Info",   .action = gs_show_extra_info },
+    COMPONENT_CONTEXT_MENU_LIST_END,
+}};
+
+/* Remembered top-level row so re-showing the menu (after a leaf action or an
+   info box) lands back where the user was. */
+static int gs_saved_row = 0;
+
+static void gs_show_advanced_info (menu_t *menu, void *arg) {
+    gs_saved_row = game_settings_context_menu.row_selected;
+    show_advanced_info_message = true;
+}
+
+static void gs_show_extra_info (menu_t *menu, void *arg) {
+    gs_saved_row = game_settings_context_menu.row_selected;
+    show_extra_info_message = true;
+}
+
+static void refresh_game_settings_labels (menu_t *menu) {
+    snprintf(gs_save_label, sizeof(gs_save_label), "Save Type: %s",
+        format_rom_save_type(rom_info_get_save_type(&menu->load.rom_info), menu->load.rom_info.features.controller_pak));
+    snprintf(gs_tv_label, sizeof(gs_tv_label), "TV region: %s",
+        format_rom_tv_type(rom_info_get_tv_type(&menu->load.rom_info)));
+    snprintf(gs_exp_label, sizeof(gs_exp_label), "Expansion PAK: %s",
+        format_rom_expansion_pak_info(menu->load.rom_info.features.expansion_pak));
+    snprintf(gs_rumble_label, sizeof(gs_rumble_label), "Rumble PAK: %s",
+        format_rom_pak_feature_info(menu->load.rom_info.features.rumble_pak));
+    snprintf(gs_transfer_label, sizeof(gs_transfer_label), "Transfer PAK: %s",
+        format_rom_pak_feature_info(menu->load.rom_info.features.transfer_pak));
+    snprintf(gs_cheats_label, sizeof(gs_cheats_label), "Datel Cheats: %s",
+        format_boolean_type(menu->load.rom_info.settings.cheats_enabled));
+}
+
+/* Where a launch came from — used so a load error returns there, not always Files. */
+static menu_mode_t launch_origin_mode (menu_t *menu) {
+    if (menu->load.from_grid)             return MENU_MODE_GAMES_GRID;
+    if (menu->load.load_favorite_id >= 0) return MENU_MODE_GAMES_GRID;
+    if (menu->load.load_history_id >= 0)  return MENU_MODE_HISTORY;
+    return MENU_MODE_BROWSER;
+}
+
+static void leave_view (menu_t *menu) {
+    sound_play_effect(SFX_EXIT);
+    menu->load.from_grid = false;
+    if (menu->load.load_return_mode != 0) {
+        menu->next_mode = menu->load.load_return_mode;
+        menu->load.load_return_mode = 0;
+    } else if (menu->load.load_favorite_id >= 0) {
+        menu->next_mode = MENU_MODE_GAMES_GRID;
+    } else if (menu->load.load_history_id >= 0) {
+        menu->next_mode = MENU_MODE_HISTORY;
+    } else {
+        menu->next_mode = MENU_MODE_BROWSER;
+    }
+}
+
 static void process (menu_t *menu) {
-    if (ui_components_context_menu_process(menu, &options_context_menu)) {
+    /* Info overlays are modal: any of these buttons dismisses and reopens the menu. */
+    if (show_extra_info_message || show_advanced_info_message) {
+        if (menu->actions.back || menu->actions.enter || menu->actions.settings || menu->actions.lz_context) {
+            show_extra_info_message = false;
+            show_advanced_info_message = false;
+            ui_components_context_menu_show(&game_settings_context_menu);
+            game_settings_context_menu.row_selected = gs_saved_row;
+            sound_play_effect(SFX_EXIT);
+        }
         return;
     }
 
-    if (menu->actions.enter) {
-        menu->load_pending.rom_file = true;
-    } else if (menu->actions.back) {
-        sound_play_effect(SFX_EXIT);
-        menu->next_mode = MENU_MODE_BROWSER;
-    } else if (menu->actions.options) {
-        ui_components_context_menu_show(&options_context_menu);
-        sound_play_effect(SFX_SETTING);
-    } else if (menu->actions.lz_context) {
-        if (show_extra_info_message) {
-            show_extra_info_message = false;
-        } else {
-            show_extra_info_message = true;
+    /* A leaf action (setting change) closes the menu — reopen it so this view
+       persists, refreshing the value labels. Launch is the one exception. */
+    if (game_settings_context_menu.row_selected < 0) {
+        if (menu->load_pending.rom_file) {
+            return;
         }
-        sound_play_effect(SFX_SETTING);
-    } else if (menu->actions.settings) { // TODO: change to go_right/go_left when those are implemented
-        if (show_advanced_info_message) {
-            show_advanced_info_message = false;
-        } else {
-            show_advanced_info_message = true;
-        }
-        sound_play_effect(SFX_SETTING);
-    } else if (menu->actions.go_right) {
-        iterate_metadata_image(menu, 1);
-        sound_play_effect(SFX_CURSOR);
-    } else if (menu->actions.go_left) {
-        iterate_metadata_image(menu, -1);
-        sound_play_effect(SFX_CURSOR);
+        refresh_game_settings_labels(menu);
+        ui_components_context_menu_show(&game_settings_context_menu);
+        game_settings_context_menu.row_selected = gs_saved_row;
+        return;
     }
+
+    /* B at the top level leaves the view; deeper, let it pop submenus normally. */
+    if (menu->actions.back && game_settings_context_menu.submenu == NULL) {
+        leave_view(menu);
+        return;
+    }
+
+    /* Remember the top-level row before navigating, for post-action re-show. */
+    gs_saved_row = game_settings_context_menu.row_selected;
+
+    ui_components_context_menu_process(menu, &game_settings_context_menu);
 }
 
 static void draw (menu_t *menu, surface_t *d) {
     rdpq_attach(d, NULL);
 
-    ui_components_background_draw();
-#ifdef FEATURE_AUTOLOAD_ROM_ENABLED
-    if (menu->load_pending.rom_file && menu->settings.loading_progress_bar_enabled) {
-        ui_components_loader_draw(0.0f, NULL);
+    /* Use the grid backdrop when opened from the grid — and also on the exit frame
+       (next_mode set to the grid), so closing doesn't flash a black background. */
+    if (menu->load.from_grid || menu->next_mode == MENU_MODE_GAMES_GRID) {
+        view_games_grid_draw_background(menu, d);
     } else {
-#endif
-        ui_components_layout_draw();
-
-        ui_components_main_text_draw(
-            STL_DEFAULT,
-            ALIGN_CENTER, VALIGN_TOP,
-            "%s\n"
-            "%.20s\n",
-            rom_filename,
-            menu->load.rom_info.title
-        );
-
-        ui_components_main_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "\n\n\n\t%.120s\n",
-            format_rom_description(menu)
-            
-        );
-
-        ui_components_main_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "\n\n\n\n\n\n\n\n\n\n\n"
-            "Save type:\t\t%s\n"
-            "TV region:\t\t%s\n"
-            "\n"
-            "Expansion PAK:\t%s\n"
-            "Rumble PAK:\t\t%s\n"
-            "Transfer PAK:\t\t%s\n"
-            "\n"
-            "Datel Cheats:\t\t%s\n"
-            "Patches:\t\t\t%s\n"
-            ,
-            
-            format_rom_save_type(rom_info_get_save_type(&menu->load.rom_info), menu->load.rom_info.features.controller_pak),
-            format_rom_tv_type(rom_info_get_tv_type(&menu->load.rom_info)),
-            format_rom_expansion_pak_info(menu->load.rom_info.features.expansion_pak),
-            format_rom_pak_feature_info(menu->load.rom_info.features.rumble_pak),
-            format_rom_pak_feature_info(menu->load.rom_info.features.transfer_pak),
-            format_boolean_type(menu->load.rom_info.settings.cheats_enabled),
-            format_boolean_type(menu->load.rom_info.settings.patches_enabled)
-        );
-
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_LEFT, VALIGN_TOP,
-            "A: Load and run ROM\n"
-            "B: Back\n"
-        );
-
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_CENTER, VALIGN_TOP,
-            "Start: Adv. Info\n"
-            "◀ Change game image ▶\n"
-        );
-
-        ui_components_actions_bar_text_draw(
-            STL_DEFAULT,
-            ALIGN_RIGHT, VALIGN_TOP,
-            "L|Z: Extra Info\n"
-            "R: Adv. Options\n"
-        );
-
-        if (boxart != NULL) {
-            ui_components_boxart_draw(boxart);
-        }
-
-        if (show_extra_info_message) {
-            ui_components_messagebox_draw(
-                "EXTRA ROM INFO\n"
-                "\n"
-                "Title: %.20s\n"
-                "Age Rating: %s\n"
-                "Release Date: %s\n"
-                "Author: %s\n"
-                "Website: %s\n"
-                "License: %s\n"
-                "Game code: %c%c%c%c\n"
-                "Media type: %s\n"
-                "Variant: %s\n"
-                "Version: %hhu\n"
-                "CIC: %s\n\n\n"
-                "Press L|Z to return.\n",
-                menu->load.rom_info.title,
-                format_age_rating(menu->load.rom_info.meta.age_rating),
-                menu->load.rom_info.meta.release_date,
-                menu->load.rom_info.meta.author,
-                menu->load.rom_info.meta.website,
-                menu->load.rom_info.meta.osi_license,
-                menu->load.rom_info.game_code[0], menu->load.rom_info.game_code[1], menu->load.rom_info.game_code[2], menu->load.rom_info.game_code[3],
-                format_rom_media_type(menu->load.rom_info.category_code),
-                format_rom_destination_market(menu->load.rom_info.destination_code),
-                menu->load.rom_info.version,
-                format_cic_type(rom_info_get_cic_type(&menu->load.rom_info))
-            );
-        }
-
-        if (show_advanced_info_message) {
-            ui_components_messagebox_draw(
-                "ADVANCED ROM INFO\n"
-                "\n"
-                "Boot address: 0x%08lX\n"
-                "SDK version: %.1f%c\n"
-                "Clock Rate: %.2fMHz\n"
-                "Check code: 0x%016llX\n"
-                "Endianness: %s\n\n\n"
-                "Press START to return.\n",
-                menu->load.rom_info.boot_address,
-                (menu->load.rom_info.libultra.version / 10.0f), menu->load.rom_info.libultra.revision,
-                menu->load.rom_info.clock_rate,
-                menu->load.rom_info.check_code,
-                format_rom_endianness(menu->load.rom_info.endianness)
-            );
-        }
-
-        ui_components_context_menu_draw(&options_context_menu);
-#ifdef FEATURE_AUTOLOAD_ROM_ENABLED
+        ui_components_background_draw();
     }
-#endif
+
+    if (menu->load_pending.rom_file) {
+        draw_load_content(0.0f);
+        rdpq_detach_show();
+        return;
+    }
+
+    ui_components_context_menu_draw(&game_settings_context_menu);
+
+    if (show_extra_info_message) {
+        /* Format into a buffer, then neutralise rdpq inline-escape introducers ('$'=font,
+           '^'=style) — a ROM title / author / website / license carrying one crashes
+           rdpq_paragraph_build ("invalid font id"). Drawn as a literal so no field re-escapes. */
+        char info[1024];
+        snprintf(info, sizeof info,
+            "EXTRA ROM INFO\n"
+            "\n"
+            "Title: %.20s\n"
+            "Age Rating: %s\n"
+            "Release Date: %s\n"
+            "Author: %s\n"
+            "Website: %s\n"
+            "License: %s\n"
+            "Game code: %c%c%c%c\n"
+            "Media type: %s\n"
+            "Variant: %s\n"
+            "Version: %hhu\n"
+            "CIC: %s\n\n\n"
+            "Press B to return.\n",
+            menu->load.rom_info.title,
+            format_age_rating(menu->load.rom_info.meta.age_rating),
+            menu->load.rom_info.meta.release_date,
+            menu->load.rom_info.meta.author,
+            menu->load.rom_info.meta.website,
+            menu->load.rom_info.meta.osi_license,
+            menu->load.rom_info.game_code[0], menu->load.rom_info.game_code[1], menu->load.rom_info.game_code[2], menu->load.rom_info.game_code[3],
+            format_rom_media_type(menu->load.rom_info.category_code),
+            format_rom_destination_market(menu->load.rom_info.destination_code),
+            menu->load.rom_info.version,
+            format_cic_type(rom_info_get_cic_type(&menu->load.rom_info))
+        );
+        for (char *p = info; *p; p++) if (*p == '$' || *p == '^') *p = ' ';
+        ui_components_messagebox_draw("%s", info);
+    }
+
+    if (show_advanced_info_message) {
+        ui_components_messagebox_draw(
+            "ADVANCED ROM INFO\n"
+            "\n"
+            "Boot address: 0x%08lX\n"
+            "SDK version: %.1f%c\n"
+            "Clock Rate: %.2fMHz\n"
+            "Check code: 0x%016llX\n"
+            "Endianness: %s\n\n\n"
+            "Press B to return.\n",
+            menu->load.rom_info.boot_address,
+            (menu->load.rom_info.libultra.version / 10.0f), menu->load.rom_info.libultra.revision,
+            menu->load.rom_info.clock_rate,
+            menu->load.rom_info.check_code,
+            format_rom_endianness(menu->load.rom_info.endianness)
+        );
+    }
 
     rdpq_detach_show();
 }
@@ -592,11 +493,12 @@ static void draw_progress (float progress) {
 
     if (d) {
         rdpq_attach(d, NULL);
-
-        ui_components_background_draw();
-
-        ui_components_loader_draw(progress, "Loading ROM...");  
-
+        if (load_menu_ptr && load_menu_ptr->load.from_grid) {
+            view_games_grid_draw_background(load_menu_ptr, d);
+        } else {
+            ui_components_background_draw();
+        }
+        draw_load_content(progress);
         rdpq_detach_show();
     }
 }
@@ -615,6 +517,8 @@ static void load (menu_t *menu) {
 #endif
 
     if (err != CART_LOAD_OK) {
+        /* Return to wherever the launch came from (grid/history), not always Files. */
+        menu->error_return_mode = launch_origin_mode(menu);
         menu_show_error(menu, cart_load_convert_error_message(err));
         return;
     }
@@ -661,40 +565,119 @@ static void load (menu_t *menu) {
     }
 }
 
-static void deinit (void) {
-    ui_components_boxart_free(boxart);
-    boxart = NULL;
-    current_metadata_image_index = 0;
-    metadata_images_scanned = false;
+static void draw_load_content (float progress) {
+    /* When launched from the grid, show a compact rainbow popup box;
+       otherwise use the full-screen layout. */
+    bool compact = load_menu_ptr && load_menu_ptr->load.from_grid;
 
-    // Clear availability cache
-    for (uint16_t i = 0; i < metadata_image_filename_cache_length; i++) {
-        metadata_image_available[i] = false;
+    int img_w = compact ? 120 : 160;
+    int img_h = compact ? 90  : 120;
+    int bar_w = img_w;
+    int bar_h = compact ? 14  : 18;
+    int gap   = 24;   /* breathing room between the cover and the progress bar */
+    int block_h = img_h + gap + bar_h;
+
+    int img_x0 = DISPLAY_CENTER_X - img_w / 2;
+    int img_y0 = DISPLAY_CENTER_Y - block_h / 2;
+    int img_x1 = img_x0 + img_w;
+    int img_y1 = img_y0 + img_h;
+
+    int bar_x0 = DISPLAY_CENTER_X - bar_w / 2;
+    int bar_y0 = img_y1 + gap;
+    int bar_x1 = bar_x0 + bar_w;
+    int bar_y1 = bar_y0 + bar_h;
+
+    if (compact) {
+        /* Rainbow popup box — drawn before the content so cart+bar sit on top */
+        int box_w = bar_w + MESSAGEBOX_MARGIN;
+        int box_h = block_h + MESSAGEBOX_MARGIN;
+        ui_components_dialog_draw(box_w, box_h);
     }
+
+    /* Image area: blit the real boxart when we have a sane surface; otherwise show
+       the cart placeholder (same as the grid/inspect). The dimension guard rejects a
+       corrupt surface that would otherwise assert in TMEM ("rectangle too big").
+       No opaque backdrop is drawn, so transparent art (cart/logo) shows the screen/
+       dialog behind it rather than a grey block. */
+    surface_t *img = (load_boxart && !load_boxart->loading) ? load_boxart->image : NULL;
+    bool img_ok = img && img->width > 0 && img->height > 0
+                      && img->width <= 1024 && img->height <= 1024;
+    if (img_ok) {
+        float sx = (float)img_w / img->width;
+        float sy = (float)img_h / img->height;
+        float scale = sx < sy ? sx : sy;
+        int dw = (int)(img->width  * scale);
+        int dh = (int)(img->height * scale);
+        rdpq_mode_push();
+        rdpq_set_mode_standard();
+        rdpq_mode_filter(FILTER_BILINEAR);
+        /* Alpha-BLEND (not alpha-compare): partial-alpha (anti-aliased) logo/art edges rendered
+           opaque under alphacompare(1) -> coloured halo. Blending composites them smoothly;
+           fully transparent texels still contribute nothing (no green). Matches the placeholder. */
+        rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
+        rdpq_tex_blit(img,
+            img_x0 + (img_w - dw) / 2,
+            img_y0 + (img_h - dh) / 2,
+            &(rdpq_blitparms_t){ .scale_x = scale, .scale_y = scale });
+        rdpq_mode_pop();
+    } else {
+        ui_components_cart_placeholder_draw(img_x0, img_y0, img_x1, img_y1);
+    }
+
+    /* Progress bar: dark background then rainbow fill */
+    rdpq_mode_push();
+    rdpq_set_mode_fill(RGBA32(0x08, 0x08, 0x08, 0xFF));
+    rdpq_fill_rectangle(bar_x0, bar_y0, bar_x1, bar_y1);
+    rdpq_mode_pop();
+
+    int W = bar_w;
+    int filled_px = (int)(progress * W);
+    int N = W / 4;
+    if (N > 96) N = 96;
+    if (N < 1)  N = 1;
+    for (int i = 0; i < N; i++) {
+        int sx0 = bar_x0 + W * i / N;
+        int sx1 = bar_x0 + W * (i + 1) / N;
+        int sc  = (sx0 + sx1) / 2 - bar_x0;
+        uint8_t hue = (uint8_t)(255 * i / N);
+        uint8_t bri = (sc < filled_px) ? 220 : 28;
+        color_t c = ui_components_rainbow_color(hue, bri);
+        rdpq_mode_push();
+        rdpq_set_mode_fill(c);
+        rdpq_fill_rectangle(sx0, bar_y0, sx1, bar_y1);
+        rdpq_mode_pop();
+    }
+
+    /* Small rim around the bar, matching the folder-fav / favorite-import progress bars. */
+    ui_components_border_draw(bar_x0 - 1, bar_y0 - 1, bar_x1 + 1, bar_y1 + 1);
+}
+
+static void deinit (void) {
+    ui_components_boxart_free(load_boxart);
+    load_boxart = NULL;
 }
 
 
 void view_load_rom_init (menu_t *menu) {
-#ifdef FEATURE_AUTOLOAD_ROM_ENABLED
-    if (!menu->settings.rom_autoload_enabled) {
-#endif
-        if (menu->load.rom_path) {
-            rom_info_free_meta(&menu->load.rom_info);
-            path_free(menu->load.rom_path);
-        }
+    load_menu_ptr = menu;
 
-        if(menu->load.load_history_id != -1) {
-            menu->load.rom_path = path_clone(menu->bookkeeping.history_items[menu->load.load_history_id].primary_path);
-        } else if(menu->load.load_favorite_id != -1) {
-            menu->load.rom_path = path_clone(menu->bookkeeping.favorite_items[menu->load.load_favorite_id].primary_path);
-        } else {
-            menu->load.rom_path = path_clone_push(menu->browser.directory, menu->browser.entry->name);
-        }
-
-        rom_filename = path_last_get(menu->load.rom_path);
-#ifdef FEATURE_AUTOLOAD_ROM_ENABLED
+    /* Resolve the ROM path from whichever source the caller set. History / favorite / browser
+       launches each replace any previous rom_path. A caller that pre-set rom_path with NONE of
+       those sources (the ROM-boot countdown) keeps its path unchanged -- the old code's
+       unconditional `browser.entry->name` deref would crash in that case. */
+    if (menu->load.load_history_id != -1) {
+        if (menu->load.rom_path) { rom_info_free_meta(&menu->load.rom_info); path_free(menu->load.rom_path); }
+        menu->load.rom_path = path_clone(menu->bookkeeping.history_items[menu->load.load_history_id].primary_path);
+    } else if (menu->load.load_favorite_id != -1) {
+        if (menu->load.rom_path) { rom_info_free_meta(&menu->load.rom_info); path_free(menu->load.rom_path); }
+        menu->load.rom_path = path_clone(menu->bookkeeping.favorite_items[menu->load.load_favorite_id].primary_path);
+    } else if (menu->browser.entry) {
+        if (menu->load.rom_path) { rom_info_free_meta(&menu->load.rom_info); path_free(menu->load.rom_path); }
+        menu->load.rom_path = path_clone_push(menu->browser.directory, menu->browser.entry->name);
     }
-#endif 
+    /* else: rom_path was pre-set by the caller (ROM-boot preview) -- use it as-is. */
+
+    rom_filename = path_last_get(menu->load.rom_path);
 
     if (show_extra_info_message) {
         show_extra_info_message = false;
@@ -703,12 +686,18 @@ void view_load_rom_init (menu_t *menu) {
         show_advanced_info_message = false;
     }
 
+    /* Start boxart load for the load screen placeholder */
+    ui_components_boxart_free(load_boxart);
+    load_boxart = NULL;
+
     debugf("Load ROM: loading ROM info from %s\n", path_get(menu->load.rom_path));
     rom_err_t err = rom_config_load(menu->load.rom_path, &menu->load.rom_info);
     if (err != ROM_OK) {
         rom_info_free_meta(&menu->load.rom_info);
         path_free(menu->load.rom_path);
         menu->load.rom_path = NULL;
+        /* Capture the origin before clearing the favorite/history ids below. */
+        menu->error_return_mode = launch_origin_mode(menu);
         //disable the attempt at loading the favorite / history
         menu->load.load_history_id = -1;
         menu->load.load_favorite_id = -1;
@@ -716,12 +705,32 @@ void view_load_rom_init (menu_t *menu) {
         menu_show_error(menu, convert_error_message(err));
         return;
     }
+    {
+        char gc[5];
+        memcpy(gc, menu->load.rom_info.game_code, 4);
+        gc[4] = '\0';
+        int lv_ovr = rom_config_get_image_view(menu->load.rom_path, 2);
+        int lv = (lv_ovr >= 0 && lv_ovr < GRID_IMAGE_COUNT) ? lv_ovr : menu->settings.image_view_load;
+        file_image_type_t img_type = ui_components_boxart_view_to_type(lv);
+        load_boxart = ui_components_boxart_init(
+            menu->storage_prefix, gc,
+            menu->load.rom_info.title,
+            path_get(menu->load.rom_path),
+            img_type, menu->settings.use_custom_files
+        );
+    }
+
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED
     if (!menu->settings.rom_autoload_enabled) {
 #endif
-        current_metadata_image_index = 0;
-        boxart = ui_components_boxart_init(menu->storage_prefix, menu->load.rom_info.game_code, menu->load.rom_info.title, IMAGE_BOXART_FRONT);
         ui_components_context_menu_init(&options_context_menu);
+        refresh_game_settings_labels(menu);
+        ui_components_context_menu_init(&game_settings_context_menu);
+        /* Don't open the menu when we're launching straight through. */
+        if (!menu->load_pending.launch_rom) {
+            ui_components_context_menu_show(&game_settings_context_menu);
+            gs_saved_row = 0;
+        }
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED
     }
 #endif
@@ -729,6 +738,15 @@ void view_load_rom_init (menu_t *menu) {
 }
 
 void view_load_rom_display (menu_t *menu, surface_t *display) {
+    /* "Launch Game" shortcut: boot immediately once ROM info has loaded, skipping
+       the detail view entirely. Guards on rom_path so a failed init can't load NULL. */
+    if (menu->load_pending.launch_rom) {
+        menu->load_pending.launch_rom = false;
+        if (menu->load.rom_path) {
+            menu->load_pending.rom_file = true;
+        }
+    }
+
     process(menu);
 
     draw(menu, display);

@@ -290,20 +290,32 @@ flashcart_err_t flashcart_load_save (char *save_path, flashcart_save_type_t save
         return FLASHCART_OK;
     }
 
-    if (!file_exists(save_path)) {
+    /* (Re)create the save file when it's missing OR the wrong size for this save
+       type. A wrong-sized .sav can't be loaded by the cart anyway (it expects
+       exactly SAVE_SIZE), so this only ever replaces an already-unloadable save —
+       e.g. a stale file left by an earlier/different save-type detection, which
+       otherwise hard-failed the launch (the Majora's Mask FlashRAM case). */
+    if (!file_exists(save_path) || (file_get_size(save_path) != SAVE_SIZE[save_type])) {
+        debugf("[SAVE] (re)creating %s: have %lu bytes, need %u\n",
+               save_path, (unsigned long)file_get_size(save_path), (unsigned)SAVE_SIZE[save_type]);
         if (file_allocate(save_path, SAVE_SIZE[save_type])) {
+            debugf("[SAVE] file_allocate failed\n");
             return FLASHCART_ERR_LOAD;
         }
         if (file_fill(save_path, 0xFF)) {
+            debugf("[SAVE] file_fill failed\n");
             return FLASHCART_ERR_LOAD;
         }
     }
 
     if (file_get_size(save_path) != SAVE_SIZE[save_type]) {
+        debugf("[SAVE] size still wrong after create: %lu vs %u\n",
+               (unsigned long)file_get_size(save_path), (unsigned)SAVE_SIZE[save_type]);
         return FLASHCART_ERR_LOAD;
     }
 
     if ((err = flashcart->load_save(save_path)) != FLASHCART_OK) {
+        debugf("[SAVE] driver load_save failed: %d\n", err);
         return err;
     }
 
