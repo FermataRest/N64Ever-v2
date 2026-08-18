@@ -44,6 +44,7 @@ SRCS = \
 	menu/actions.c \
 	menu/game_metadata.c \
 	menu/game_special.c \
+	menu/bgm.c \
 	menu/bookkeeping.c \
 	menu/cart_load.c \
 	menu/datel_codes.c \

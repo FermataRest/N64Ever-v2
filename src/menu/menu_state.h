@@ -160,6 +160,7 @@ typedef struct {
         bool extract_file;
         bool launch_rom;    /**< Boot the selected ROM immediately, skipping the detail view */
     } load_pending;
+
 } menu_t;
 
 

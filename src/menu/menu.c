@@ -12,6 +12,7 @@
 #include <fatfs/ff.h>   /* f_rename -- one-time legacy-data migration */
 
 #include "actions.h"
+#include "bgm.h"
 #include "boot/boot.h"
 #include "flashcart/flashcart.h"
 #include "fonts.h"
@@ -267,7 +268,7 @@ static void menu_init (boot_params_t *boot_params) {
 
     sound_use_sfx(menu->settings.soundfx_enabled);
     sound_init_grid_sfx(menu->storage_prefix);
-    sound_set_grid_sfx_enabled(menu->settings.bgm_enabled);
+    sound_set_grid_sfx_enabled(menu->settings.soundfx_enabled);
 
     /* path_init's path_push prepends its own '/', so strip any leading slash from
        default_directory — "sd:///" has root "///" != "/" making path_is_root fail. */
@@ -408,7 +409,9 @@ void menu_run (boot_params_t *boot_params) {
         }
 
         sound_poll();
-
+	if (menu->mode != MENU_MODE_MUSIC_PLAYER) {
+		bgm_process();
+	}
         png_decoder_poll();
 
         usb_comm_poll(menu);

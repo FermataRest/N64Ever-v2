@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <libdragon.h>
+#include "../bgm.h"
 #include "../sound.h"
 #include "../settings.h"
 #include "../ui_components/constants.h"
@@ -101,7 +102,11 @@ static void toggle_soundfx(menu_t *menu, void *arg) {
 static void toggle_bgm(menu_t *menu, void *arg) {
     settings_action_fired = true;
     menu->settings.bgm_enabled = !menu->settings.bgm_enabled;
-    sound_set_grid_sfx_enabled(menu->settings.bgm_enabled);
+    if (menu->settings.bgm_enabled) {
+	    bgm_start(menu->storage_prefix);
+    } else {
+	   bgm_stop();
+    }
     settings_save(&menu->settings);
     update_settings_labels(menu);
 }

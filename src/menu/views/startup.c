@@ -1,3 +1,4 @@
+#include "../bgm.h"
 #include "utils/fs.h"
 #include "views.h"
 
@@ -43,6 +44,10 @@ void view_startup_init (menu_t *menu) {
             return;
         }
         path_free(rp);                                /* configured ROM is missing -> fall through */
+    }
+
+    if (menu->settings.bgm_enabled) {
+	    bgm_start(menu->storage_prefix);
     }
 
     if (menu->settings.first_run) {
