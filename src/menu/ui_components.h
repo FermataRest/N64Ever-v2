@@ -292,6 +292,7 @@ typedef struct component_context_menu {
         void (*action)(menu_t *menu, void *arg); /**< Action function for the menu item */
         void *arg; /**< Argument for the action function */
         struct component_context_menu *submenu; /**< Pointer to the submenu */
+	bool keep_open; /**< If true, firing this row's action does not close the context menu (Default false) */
     } list[]; /**< List of menu items */
 } component_context_menu_t;
 
@@ -303,6 +304,24 @@ typedef struct component_context_menu {
  * @param cm Pointer to the context menu structure.
  */
 void ui_components_context_menu_init(component_context_menu_t *cm);
+
+/**
+ * @brief Check whether solid border mode is active and get its color.
+ *
+ * @param out_color Set to the current solid border color (only meaningful if this returns false).
+ * @return true if rainbow mode is active, false if solid color mode is active.
+ */
+bool ui_components_border_is_rainbow(color_t *out_color);
+
+/**
+ * @brief Set the border rendering mode: animated rainbow, or a solid RGB color.
+ *
+ * @param rainbow_enabled true for the animated rainbow effect, false for a solid color.
+ * @param r Red component of the solid color (0-255), used when rainbow_enabled is false.
+ * @param g Green component of the solid color (0-255).
+ * @param b Blue component of the solid color (0-255).
+ */
+void ui_components_set_border_mode(bool rainbow_enabled, uint8_t r, uint8_t g, uint8_t b);
 
 /**
  * @brief Show the context menu component.

@@ -357,6 +357,21 @@ void ui_components_list_scrollbar_draw (int position, int items, int visible_ite
     );
 }
 
+static bool border_rainbow_enabled = true;
+static color_t border_solid_color = { 0 };
+
+void ui_components_set_border_mode (bool rainbow_enabled, uint8_t r, uint8_t g, uint8_t b) {
+    border_rainbow_enabled = rainbow_enabled;
+    border_solid_color = RGBA32(r, g, b, 0xFF);
+}
+
+bool ui_components_border_is_rainbow (color_t *out_color) {
+    if (out_color) {
+        *out_color = border_solid_color;
+    }
+    return border_rainbow_enabled;
+}
+
 /**
  * @brief Draw a dialog box.
  * 
@@ -371,6 +386,13 @@ static void dialog_glow_layer (int x0, int y0, int x1, int y1,
                                int pad, uint8_t base_hue, uint8_t brightness) {
     int lx0 = x0 - pad, ly0 = y0 - pad;
     int lx1 = x1 + pad, ly1 = y1 + pad;
+    if (!border_rainbow_enabled) {
+        ui_components_box_draw(lx0, ly0, lx1, y0, border_solid_color);   /* top */
+        ui_components_box_draw(x1,  y0,  lx1, y1, border_solid_color);   /* right */
+        ui_components_box_draw(lx0, y1,  lx1, ly1, border_solid_color);  /* bottom */
+        ui_components_box_draw(lx0, y0,  x0,  y1, border_solid_color);   /* left */
+        return;
+    }
     int W = lx1 - lx0;
     int H = y1  - y0;
     int N = DIALOG_GLOW_SEGS;
@@ -402,6 +424,14 @@ static void draw_rainbow_rim(int x0, int y0, int x1, int y1, uint8_t hue) {
    area), as a continuous clockwise gradient. Used for full-screen layouts. */
 static void draw_rainbow_border_inset(int x0, int y0, int x1, int y1, uint8_t hue) {
     const int T = 3;            /* frame thickness */
+    if (!border_rainbow_enabled) {
+        ui_components_box_draw(x0,   y0,   x1, y0+T, border_solid_color);  /* top */
+        ui_components_box_draw(x1-T, y0,   x1, y1,   border_solid_color);  /* right */
+        ui_components_box_draw(x0,   y1-T, x1, y1,   border_solid_color);  /* bottom */
+        ui_components_box_draw(x0,   y0,   x0+T, y1, border_solid_color); /* left */
+        return;
+    }
+
     int W = x1 - x0;
     int H = y1 - y0;
     int N = DIALOG_GLOW_SEGS;
@@ -601,9 +631,12 @@ void ui_components_actions_bar_buttons_draw (const char *a, const char *b, const
     actions_bar_slot_draw(r, x0, w, ALIGN_RIGHT);
 
     /* B/S/C centered on the 1/4, 2/4, 3/4 slots (box of width w/2 centered on slot). */
-    actions_bar_slot_draw(b, x0,         2 * q, ALIGN_CENTER);
-    actions_bar_slot_draw(s, x0 + q,     2 * q, ALIGN_CENTER);
-    actions_bar_slot_draw(c, x0 + 2 * q, 2 * q, ALIGN_CENTER);
+    int b_offset = TEXT_MARGIN_HORIZONTAL * 5;
+    int s_offset = TEXT_MARGIN_HORIZONTAL * 5;
+    int c_offset = TEXT_MARGIN_HORIZONTAL * 2;
+    actions_bar_slot_draw(b, x0 + b_offset, 2 * q, ALIGN_CENTER);
+    actions_bar_slot_draw(s, x0 + q + s_offset, 2 * q, ALIGN_CENTER);
+    actions_bar_slot_draw(c, x0 + 2 * q + c_offset, 2 * q, ALIGN_CENTER);
 }
 
 /**

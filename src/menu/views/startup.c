@@ -47,7 +47,7 @@ void view_startup_init (menu_t *menu) {
     }
 
     if (menu->settings.bgm_enabled) {
-	    bgm_start(menu->storage_prefix);
+	    bgm_start(menu->storage_prefix, menu->settings.bgm_selected_track);
     }
 
     if (menu->settings.first_run) {

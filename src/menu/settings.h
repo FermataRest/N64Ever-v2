@@ -140,6 +140,11 @@ typedef struct {
     bool rom_boot_enabled;
     char *rom_boot_path;       /**< directory of the boot ROM (relative to the storage prefix) */
     char *rom_boot_filename;   /**< filename of the boot ROM */
+    char *bgm_selected_track;  /**< filename (in BGM_SD_DIRECTORY) of the selected single BGM track, or "" for playlist mode */
+    bool border_rainbow_enabled;
+    int border_color_r;
+    int border_color_g;
+    int border_color_b;
     int rom_boot_countdown_sec; /**< ROM-boot countdown length in seconds (1..15; default 5) */
 
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED

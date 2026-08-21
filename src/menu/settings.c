@@ -23,6 +23,10 @@ static settings_t init = {
     .show_rom_configuration_files = false,
     .soundfx_enabled = false,
     .bgm_enabled = false,
+    .border_rainbow_enabled = true,
+    .border_color_r = 255,
+    .border_color_g = 255,
+    .border_color_b = 255,
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED
     .rom_autoload_enabled = false,
     .rom_autoload_path = "",
@@ -54,6 +58,7 @@ static settings_t init = {
     .rom_boot_enabled  = false,
     .rom_boot_path     = "",
     .rom_boot_filename = "",
+    .bgm_selected_track = "",
     .rom_boot_countdown_sec = 5,
 };
 
@@ -88,6 +93,10 @@ void settings_load (settings_t *settings) {
     settings->show_rom_configuration_files = ini_get_bool(ini, "menu", "show_rom_configuration_files", init.show_rom_configuration_files);
     settings->soundfx_enabled = ini_get_bool(ini, "menu", "soundfx_enabled", init.soundfx_enabled);
     settings->bgm_enabled = ini_get_bool(ini, "menu", "bgm_enabled", init.bgm_enabled);
+    settings->border_rainbow_enabled = ini_get_bool(ini, "menu", "border_rainbow_enabled", init.border_rainbow_enabled);
+    settings->border_color_r         = ini_get_int(ini, "menu", "border_color_r", init.border_color_r);
+    settings->border_color_g         = ini_get_int(ini, "menu", "border_color_g", init.border_color_g);
+    settings->border_color_b         = ini_get_int(ini, "menu", "border_color_b", init.border_color_b);
 
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED
     settings->rom_autoload_enabled = ini_get_bool(ini, "menu", "autoload_rom_enabled", init.rom_autoload_enabled);
@@ -124,6 +133,8 @@ void settings_load (settings_t *settings) {
     settings->rom_boot_path     = strdup(ini_get_string(ini, "rom_boot", "path", init.rom_boot_path));
     free(settings->rom_boot_filename);
     settings->rom_boot_filename = strdup(ini_get_string(ini, "rom_boot", "filename", init.rom_boot_filename));
+    free(settings->bgm_selected_track);
+    settings->bgm_selected_track = strdup(ini_get_string(ini, "menu", "bgm_selected_track", init.bgm_selected_track));
     settings->rom_boot_countdown_sec = ini_get_int(ini, "rom_boot", "countdown_sec", init.rom_boot_countdown_sec);
 
     ini_free(ini);
@@ -146,6 +157,11 @@ void settings_save (settings_t *settings) {
     ini_set_bool(ini, "menu", "show_rom_configuration_files", settings->show_rom_configuration_files);
     ini_set_bool(ini, "menu", "soundfx_enabled", settings->soundfx_enabled);
     ini_set_bool(ini, "menu", "bgm_enabled", settings->bgm_enabled);
+    ini_set_bool(ini, "menu", "border_rainbow_enabled", settings->border_rainbow_enabled);
+    ini_set_int(ini,  "menu", "border_color_r",          settings->border_color_r);
+    ini_set_int(ini,  "menu", "border_color_g",          settings->border_color_g);
+    ini_set_int(ini,  "menu", "border_color_b",           settings->border_color_b);
+
 #ifdef FEATURE_AUTOLOAD_ROM_ENABLED
     ini_set_bool(ini, "menu", "autoload_rom_enabled", settings->rom_autoload_enabled);
     ini_set_string(ini, "autoload", "rom_path", settings->rom_autoload_path);
@@ -174,6 +190,7 @@ void settings_save (settings_t *settings) {
     ini_set_bool(ini, "menu", "rom_boot_enabled", settings->rom_boot_enabled);
     ini_set_string(ini, "rom_boot", "path", settings->rom_boot_path);
     ini_set_string(ini, "rom_boot", "filename", settings->rom_boot_filename);
+    ini_set_string(ini, "menu", "bgm_selected_track", settings->bgm_selected_track);
     ini_set_int(ini, "rom_boot", "countdown_sec", settings->rom_boot_countdown_sec);
 
     /* Beta feature flags, they should not save until production ready! */

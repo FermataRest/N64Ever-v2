@@ -82,8 +82,10 @@ bool ui_components_context_menu_process(menu_t *menu, component_context_menu_t *
             }
             cm->submenu->parent = cm;
         } else if (cm->list[cm->row_selected].action) {
-            cm->list[cm->row_selected].action(menu, cm->list[cm->row_selected].arg);
-            top->hide_pending = true;
+            cm->list[cm->row_selected].action(menu, cm->list[cm->row_selected].arg);    
+	    if (!cm->list[cm->row_selected].keep_open) {
+	        top->hide_pending = true;
+	    }
         }
         sound_play_effect(SFX_ENTER);
     } else if (menu->actions.go_up) {

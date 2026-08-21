@@ -23,6 +23,7 @@
 #include "png_decoder.h"
 #include "settings.h"
 #include "sound.h"
+#include "ui_components.h"
 #include "usb_comm.h"
 #include "utils/fs.h"
 #include "views/views.h"
@@ -269,6 +270,7 @@ static void menu_init (boot_params_t *boot_params) {
     sound_use_sfx(menu->settings.soundfx_enabled);
     sound_init_grid_sfx(menu->storage_prefix);
     sound_set_grid_sfx_enabled(menu->settings.soundfx_enabled);
+    ui_components_set_border_mode(menu->settings.border_rainbow_enabled, menu->settings.border_color_r, menu->settings.border_color_g, menu->settings.border_color_b);
 
     /* path_init's path_push prepends its own '/', so strip any leading slash from
        default_directory — "sd:///" has root "///" != "/" making path_is_root fail. */

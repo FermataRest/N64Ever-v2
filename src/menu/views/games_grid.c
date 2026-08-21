@@ -13,6 +13,7 @@
 #include "../rom_info.h"
 #include "../settings.h"
 #include "../sound.h"
+#include "../ui_components.h"
 #include "../ui_components/constants.h"
 #include "utils/fs.h"
 #include "views.h"
@@ -437,6 +438,15 @@ static void draw_glow_layer(int x0, int y0, int x1, int y1,
                              int pad, uint8_t base_hue, uint8_t brightness) {
     int lx0 = x0 - pad, ly0 = y0 - pad;
     int lx1 = x1 + pad, ly1 = y1 + pad;
+    color_t solid_color;
+    if (!ui_components_border_is_rainbow(&solid_color)) {
+        ui_components_box_draw(lx0, ly0, lx1, y0, solid_color);
+        ui_components_box_draw(x1,  y0,  lx1, y1, solid_color);
+        ui_components_box_draw(lx0, y1,  lx1, ly1, solid_color);
+        ui_components_box_draw(lx0, y0,  x0,  y1, solid_color);
+        return;
+    }
+
     int W = lx1 - lx0;
     int H = y1  - y0;
     int N = BORDER_SEGS;
@@ -1543,8 +1553,8 @@ static void draw_inspect(menu_t *menu) {
            (and may therefore scroll). The Classic font is larger than the Pixel font, so
            it wraps to more/taller lines -- account for that or it gets mis-cut. */
         bool classic = menu->settings.use_legacy_font;
-        const int EST_CHAR_W = classic ? 9 : 8;
-        const int EST_LINE_H = classic ? 18 : 14;
+        const int EST_CHAR_W = classic ? 12 : 8;
+        const int EST_LINE_H = classic ? 20 : 14;
         int cpl = right_w / EST_CHAR_W; if (cpl < 1) cpl = 1;
         int lines = 1, col = 0;
         for (const char *p = desc; *p; p++) {
@@ -3478,7 +3488,7 @@ static void draw(menu_t *menu, surface_t *d) {
             draw_confirm_remove(menu);
         }
     } else if (move_mode) {
-        ui_components_actions_bar_buttons_draw("A: Done", "B: Done", "S: Done", NULL, "R: Unfav (hold)");
+        ui_components_actions_bar_buttons_draw("A: Done", "B: Done", "S: Done", NULL, "R (Hold): Unfav");
     } else if (fav_count == 0) {
         /* Empty grid: R either imports the /Favorites folder (if one was found) or opens
            the file browser (see process()). */
@@ -3493,7 +3503,7 @@ static void draw(menu_t *menu, surface_t *d) {
         bool az = menu->settings.always_sort_az;
         ui_components_actions_bar_buttons_draw(
             "A: Inspect",
-            az ? NULL : "B: Move (hold)",
+            az ? NULL : "B (Hold): Move",
             "S: Launch",
             az ? "C: A-Z" : "C: Page",
             "R: Menu");
