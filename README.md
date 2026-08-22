@@ -12,6 +12,7 @@ VERSION 2 of N64Ever Created by bjerreman as a fork of N64FlashcartMenu by Netwo
 # HOW TO USE
 
 1) download sc64menu.n64 under Releases on this github page
+   **[⬇ Download the latest build (sc64menu.n64)](https://github.com/jsteez47/N64Ever-v2/releases/latest)**  
 2) Put sc64menu.n64 on the root of your SD card
 3) To add background music, add mp3 tracks to the following path on your SD card (make these folders if you don't already have them): /menu/n64ever/bgm/
   -Add as many as you'd like, you can select from them on the menu and choosing one will set it as your default background music that will start playing on boot.
