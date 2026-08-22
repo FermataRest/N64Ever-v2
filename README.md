@@ -1,5 +1,29 @@
 # N64ever — Documentation
 
+VERSION 2 of N64Ever Created by bjerreman as a fork of N64FlashcartMenu by NetworkFusion & Polprzewodnikowy. Adds:
+-Custom background music!
+-Custom background images behind your games grid!
+-CUSTOMIZABLE RGB BORDER COLORS!
+-Font Alignment Issues Fixed!
+*Only tested on Summercart64
+
+# HOW TO USE
+
+1) download sc64menu.n64 from the list of files on this page
+2) Put sc64menu on the root of your SD card
+3) To add background music, add mp3 tracks to the following path on your SD card (make these folders if you don't already have them): /menu/n64ever/bgm
+  -Add as many as you'd like, you can select from them on the menu and choosing one will set it as your default background music that will start playing on boot.
+  
+4) To add background images, add 640x480 png's to the following path on your SD card (make these folders if you don't already have them): /menu/n64ever/backgrounds
+    -Add as many as you'd like, you can select from them on the menu and choosing one will set it as your default background image that will start displaying on boot.
+
+5) Use the RGB Border Color customizer to set any color border, or turn on effects and use the original rainbow border
+
+
+# BELOW IS THE README FROM V1 OF N64EVER
+
+-----------------------------------------------------------------------------------------------------------------------
+
 A personal fork of **N64FlashcartMenu** (by NetworkFusion & Polprzewodnikowy) focused on a
 cover-art **Favorites Grid** front-end, a unified popup-based UI, and a baked-in box-art
 library. Runs on SC64 / ED64 / 64drive via libdragon.
